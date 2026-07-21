@@ -2578,9 +2578,13 @@ function sendText(res, statusCode, text) {
 
 function start() {
   const server = createServer();
-  const { host, port, protocol } = server.erp.settings;
+  const { host, port, protocol, dbProvider, databaseUrl } = server.erp.settings;
 
   server.listen(port, host, () => {
+    console.log(`Banco selecionado: ${dbProvider === 'postgres' ? 'PostgreSQL' : 'SQLite'}`);
+    if (dbProvider === 'postgres') {
+      console.log(`DATABASE_URL configurada: ${databaseUrl ? 'sim' : 'nao'}`);
+    }
     console.log(`Servidor iniciado em ${protocol}://localhost:${port}`);
     console.log(`Na rede local, acesse pelo IP do servidor na porta ${port}.`);
     console.log('Login inicial: admin / admin123');

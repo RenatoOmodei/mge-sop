@@ -1,7 +1,15 @@
 const fs = require('fs');
 const path = require('path');
-const { DatabaseSync } = require('node:sqlite');
 const { hashPassword, randomToken } = require('./security');
+
+let DatabaseSync;
+
+function createSqliteDatabase(file) {
+  if (!DatabaseSync) {
+    ({ DatabaseSync } = require('node:sqlite'));
+  }
+  return new DatabaseSync(file);
+}
 
 const STATUS_VALUES = ['Em análise', 'Liberado', 'Em produção', 'Faturado', 'Cancelado'];
 const TAB_KEYS = ['orders', 'dashboard', 'billing', 'loading', 'thirdParty', 'pcp', 'sequencing', 'aps', 'products', 'quality', 'reports', 'admin'];
@@ -263,7 +271,7 @@ class LocalDatabase {
 
   init() {
     fs.mkdirSync(path.dirname(this.file), { recursive: true });
-    this.db = new DatabaseSync(this.file);
+    this.db = createSqliteDatabase(this.file);
     this.db.exec('PRAGMA foreign_keys = ON;');
     this.db.exec('PRAGMA journal_mode = WAL;');
     this.createSchema();
