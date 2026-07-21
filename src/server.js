@@ -157,6 +157,17 @@ async function handleApi(context) {
     return;
   }
 
+  if (req.method === 'GET' && pathname === '/api/render-health') {
+    sendJson(res, 200, {
+      ok: true,
+      appName: settings.appName,
+      version: settings.appVersion,
+      dbProvider: settings.dbProvider || 'sqlite',
+      uptimeSeconds: Math.floor(process.uptime())
+    });
+    return;
+  }
+
   const session = getSession(req, db, sessions, settings);
   if (!session) {
     sendJson(res, 401, { error: 'Login necessario.' });

@@ -5,7 +5,7 @@ services:
     plan: free
     buildCommand: npm install
     startCommand: npm start
-    healthCheckPath: /api/health
+    healthCheckPath: /api/render-health
     envVars:
       - key: NODE_VERSION
         value: "22"
@@ -29,4 +29,3 @@ databases:
     plan: free
     databaseName: mge_sop
     user: mge_sop_user
-
