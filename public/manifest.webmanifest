@@ -1,0 +1,18 @@
+{
+  "name": "MGE S&OP",
+  "short_name": "S&OP",
+  "description": "Sistema S&OP integrado da MGE",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f4f6f9",
+  "theme_color": "#172033",
+  "icons": [
+    {
+      "src": "/mge-logo.png",
+      "sizes": "137x89",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

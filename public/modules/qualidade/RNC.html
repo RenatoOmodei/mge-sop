@@ -1,0 +1,546 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>RNC A3 - Abertura e Fechamento</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <svg class="icon-sprite" aria-hidden="true">
+      <symbol id="icon-plus" viewBox="0 0 24 24">
+        <path d="M12 5v14M5 12h14" />
+      </symbol>
+      <symbol id="icon-save" viewBox="0 0 24 24">
+        <path d="M5 3h12l2 2v16H5z" />
+        <path d="M8 3v6h8V3M8 21v-7h8v7" />
+      </symbol>
+      <symbol id="icon-download" viewBox="0 0 24 24">
+        <path d="M12 3v12M7 10l5 5 5-5" />
+        <path d="M5 21h14" />
+      </symbol>
+      <symbol id="icon-upload" viewBox="0 0 24 24">
+        <path d="M12 21V9M7 14l5-5 5 5" />
+        <path d="M5 3h14" />
+      </symbol>
+      <symbol id="icon-print" viewBox="0 0 24 24">
+        <path d="M7 8V3h10v5" />
+        <path d="M6 17H4v-6h16v6h-2" />
+        <path d="M7 14h10v7H7z" />
+      </symbol>
+      <symbol id="icon-trash" viewBox="0 0 24 24">
+        <path d="M4 7h16M9 7V4h6v3M8 7l1 14h6l1-14" />
+      </symbol>
+      <symbol id="icon-file" viewBox="0 0 24 24">
+        <path d="M7 3h7l3 3v15H7z" />
+        <path d="M14 3v4h4M9 12h6M9 16h6" />
+      </symbol>
+      <symbol id="icon-check" viewBox="0 0 24 24">
+        <path d="M5 13l4 4L19 7" />
+      </symbol>
+      <symbol id="icon-alert" viewBox="0 0 24 24">
+        <path d="M12 3l10 18H2z" />
+        <path d="M12 9v5M12 18h.01" />
+      </symbol>
+    </svg>
+
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="Navegação principal">
+        <div class="brand">
+          <div class="brand-mark">RNC</div>
+          <div>
+            <strong>Gestão RNC</strong>
+            <span>A3, 5W2H e PDCA</span>
+          </div>
+        </div>
+
+        <nav class="nav-tabs">
+          <button class="nav-tab is-active" type="button" data-section="painel">
+            <span class="nav-dot dot-teal"></span>Painel
+          </button>
+          <button class="nav-tab" type="button" data-section="indicadores">
+            <span class="nav-dot dot-cyan"></span>Indicadores
+          </button>
+          <button class="nav-tab" type="button" data-section="abertura">
+            <span class="nav-dot dot-blue"></span>Abertura
+          </button>
+          <button class="nav-tab" type="button" data-section="contencao">
+            <span class="nav-dot dot-orange"></span>Contenção
+          </button>
+          <button class="nav-tab" type="button" data-section="a3">
+            <span class="nav-dot dot-red"></span>A3
+          </button>
+          <button class="nav-tab" type="button" data-section="w2h">
+            <span class="nav-dot dot-green"></span>5W2H
+          </button>
+          <button class="nav-tab" type="button" data-section="pdca">
+            <span class="nav-dot dot-indigo"></span>PDCA
+          </button>
+          <button class="nav-tab" type="button" data-section="fechamento">
+            <span class="nav-dot dot-slate"></span>Fechamento
+          </button>
+          <button class="nav-tab" type="button" data-section="relatorio">
+            <span class="nav-dot dot-cyan"></span>Relatório
+          </button>
+        </nav>
+      </aside>
+
+      <main class="workspace">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Software local</p>
+            <h1>Abertura e fechamento de RNC</h1>
+          </div>
+          <div class="toolbar" aria-label="Ações do arquivo">
+            <button class="tool-button" type="button" id="newRncBtn" title="Criar nova RNC">
+              <svg><use href="#icon-plus"></use></svg>
+              <span>Nova</span>
+            </button>
+            <button class="tool-button" type="button" id="saveBtn" title="Salvar no navegador">
+              <svg><use href="#icon-save"></use></svg>
+              <span>Salvar</span>
+            </button>
+            <button class="tool-button" type="button" id="exportBtn" title="Exportar dados em JSON">
+              <svg><use href="#icon-download"></use></svg>
+              <span>Exportar</span>
+            </button>
+            <label class="tool-button" for="importFile" title="Importar dados em JSON">
+              <svg><use href="#icon-upload"></use></svg>
+              <span>Importar</span>
+            </label>
+            <input id="importFile" class="visually-hidden" type="file" accept="application/json,.json" />
+            <button class="tool-button primary" type="button" id="printBtn" title="Imprimir ou salvar em PDF">
+              <svg><use href="#icon-print"></use></svg>
+              <span>PDF</span>
+            </button>
+          </div>
+        </header>
+
+        <section class="status-band" aria-label="RNC ativa">
+          <label class="select-wrap">
+            <span>RNC ativa</span>
+            <select id="rncSelect"></select>
+          </label>
+          <div class="status-pill" id="statusPill">Aberta</div>
+          <div class="save-indicator" id="saveIndicator">Pronto</div>
+        </section>
+
+        <section class="content-section is-visible" id="section-painel">
+          <div class="section-head">
+            <h2>Painel</h2>
+            <p id="panelSubtitle">Resumo da RNC selecionada</p>
+          </div>
+
+          <div class="metric-grid" id="metricGrid"></div>
+
+          <div class="two-column">
+            <div class="plain-block">
+              <h3>RNCs registradas</h3>
+              <div class="rnc-list" id="rncList"></div>
+            </div>
+            <div class="plain-block">
+              <h3>Próximos pontos</h3>
+              <div class="next-steps" id="nextSteps"></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="content-section" id="section-indicadores">
+          <div class="section-head">
+            <h2>Indicadores</h2>
+            <p>Visao consolidada das RNCs registradas</p>
+          </div>
+
+          <div class="metric-grid indicator-metrics" id="indicatorMetricGrid"></div>
+
+          <div class="indicator-grid">
+            <div class="plain-block">
+              <h3>RNCs por status</h3>
+              <div class="bar-chart" id="statusChart"></div>
+            </div>
+            <div class="plain-block">
+              <h3>Criticidade</h3>
+              <div class="bar-chart" id="criticalityChart"></div>
+            </div>
+            <div class="plain-block">
+              <h3>Origem</h3>
+              <div class="bar-chart" id="originChart"></div>
+            </div>
+            <div class="plain-block">
+              <h3>Setor</h3>
+              <div class="bar-chart" id="sectorChart"></div>
+            </div>
+            <div class="plain-block">
+              <h3>Evolucao mensal</h3>
+              <div class="bar-chart" id="monthlyChart"></div>
+            </div>
+            <div class="plain-block">
+              <h3>Acoes 5W2H</h3>
+              <div class="bar-chart" id="actionStatusChart"></div>
+            </div>
+          </div>
+
+          <div class="two-column indicator-followup">
+            <div class="plain-block">
+              <h3>Alertas de gestao</h3>
+              <div class="next-steps" id="indicatorInsights"></div>
+            </div>
+            <div class="plain-block">
+              <h3>Base resumida</h3>
+              <div class="table-wrap compact-table-wrap">
+                <table class="indicator-table" aria-label="Resumo das RNCs">
+                  <thead>
+                    <tr>
+                      <th>RNC</th>
+                      <th>Status</th>
+                      <th>Criticidade</th>
+                      <th>Setor</th>
+                      <th>Prazo</th>
+                    </tr>
+                  </thead>
+                  <tbody id="indicatorTable"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="content-section" id="section-abertura">
+          <div class="section-head">
+            <h2>Abertura</h2>
+            <p>Identificação da não conformidade</p>
+          </div>
+
+          <form class="form-grid">
+            <label class="field span-2">
+              <span>Título da RNC</span>
+              <input data-bind="titulo" type="text" placeholder="Ex.: Divergência dimensional no lote 245" />
+            </label>
+            <label class="field">
+              <span>Código</span>
+              <input data-bind="codigo" type="text" />
+            </label>
+            <label class="field">
+              <span>Status</span>
+              <select data-bind="status">
+                <option>Aberta</option>
+                <option>Em contenção</option>
+                <option>Em análise de causa</option>
+                <option>Plano em execução</option>
+                <option>Aguardando verificação</option>
+                <option>Fechada</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Data de abertura</span>
+              <input data-bind="dataAbertura" type="date" />
+            </label>
+            <label class="field">
+              <span>Prazo alvo</span>
+              <input data-bind="prazo" type="date" />
+            </label>
+            <label class="field">
+              <span>Setor</span>
+              <input data-bind="setor" type="text" placeholder="Produção, Qualidade, Logística..." />
+            </label>
+            <label class="field">
+              <span>Processo</span>
+              <input data-bind="processo" type="text" />
+            </label>
+            <label class="field">
+              <span>Origem</span>
+              <select data-bind="origem">
+                <option>Auditoria interna</option>
+                <option>Cliente</option>
+                <option>Fornecedor</option>
+                <option>Processo interno</option>
+                <option>Inspeção final</option>
+                <option>Outro</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Criticidade</span>
+              <select data-bind="criticidade">
+                <option>Baixa</option>
+                <option>Média</option>
+                <option>Alta</option>
+                <option>Crítica</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Responsável</span>
+              <input data-bind="responsavel" type="text" />
+            </label>
+            <label class="field">
+              <span>Cliente ou área impactada</span>
+              <input data-bind="cliente" type="text" />
+            </label>
+            <label class="field">
+              <span>Lote, pedido ou referência</span>
+              <input data-bind="lote" type="text" />
+            </label>
+            <label class="field span-2">
+              <span>Descrição da não conformidade</span>
+              <textarea data-bind="descricao" rows="5"></textarea>
+            </label>
+            <label class="field">
+              <span>Requisito não atendido</span>
+              <textarea data-bind="requisito" rows="4"></textarea>
+            </label>
+            <label class="field">
+              <span>Evidência objetiva</span>
+              <textarea data-bind="evidencia" rows="4"></textarea>
+            </label>
+            <label class="field span-2">
+              <span>Impacto potencial</span>
+              <textarea data-bind="impacto" rows="4"></textarea>
+            </label>
+          </form>
+        </section>
+
+        <section class="content-section" id="section-contencao">
+          <div class="section-head">
+            <h2>Ação de contenção</h2>
+            <p>Bloqueio imediato do risco</p>
+          </div>
+
+          <form class="form-grid">
+            <label class="field span-2">
+              <span>Ação imediata</span>
+              <textarea data-bind="contencao.acao" rows="5" placeholder="Segregar, inspecionar, bloquear envio, comunicar cliente..."></textarea>
+            </label>
+            <label class="field">
+              <span>Responsável pela contenção</span>
+              <input data-bind="contencao.responsavel" type="text" />
+            </label>
+            <label class="field">
+              <span>Data de execução</span>
+              <input data-bind="contencao.data" type="date" />
+            </label>
+            <label class="field">
+              <span>Abrangência</span>
+              <textarea data-bind="contencao.abrangencia" rows="4" placeholder="Lotes, turnos, equipamentos, clientes ou fornecedores envolvidos"></textarea>
+            </label>
+            <label class="field">
+              <span>Disposição do produto ou serviço</span>
+              <textarea data-bind="contencao.disposicao" rows="4" placeholder="Retrabalho, sucata, concessão, devolução, reinspeção..."></textarea>
+            </label>
+            <label class="field">
+              <span>Risco remanescente</span>
+              <select data-bind="contencao.risco">
+                <option>Baixo</option>
+                <option>Médio</option>
+                <option>Alto</option>
+                <option>Crítico</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Situação</span>
+              <select data-bind="contencao.status">
+                <option>Planejada</option>
+                <option>Em execução</option>
+                <option>Concluída</option>
+                <option>Revisar</option>
+              </select>
+            </label>
+            <label class="field span-2">
+              <span>Verificação da contenção</span>
+              <textarea data-bind="contencao.verificacao" rows="4"></textarea>
+            </label>
+          </form>
+        </section>
+
+        <section class="content-section" id="section-a3">
+          <div class="section-head">
+            <h2>Metodologia A3</h2>
+            <p>Problema, causa raiz e contramedidas</p>
+          </div>
+
+          <form class="form-grid">
+            <label class="field">
+              <span>Contexto</span>
+              <textarea data-bind="a3.contexto" rows="5"></textarea>
+            </label>
+            <label class="field">
+              <span>Condição atual</span>
+              <textarea data-bind="a3.condicaoAtual" rows="5"></textarea>
+            </label>
+            <label class="field">
+              <span>Meta</span>
+              <textarea data-bind="a3.meta" rows="4"></textarea>
+            </label>
+            <label class="field">
+              <span>Causa raiz provável</span>
+              <textarea data-bind="a3.causaRaiz" rows="4"></textarea>
+            </label>
+          </form>
+
+          <div class="analysis-layout">
+            <div class="plain-block">
+              <h3>Espinha de peixe</h3>
+              <div class="fishbone" id="fishbonePreview" aria-label="Diagrama de causa e efeito"></div>
+            </div>
+            <div class="plain-block">
+              <h3>Causas por categoria</h3>
+              <div class="fishbone-fields">
+                <label class="field">
+                  <span>Método</span>
+                  <textarea data-bind="a3.fishbone.metodo" rows="3"></textarea>
+                </label>
+                <label class="field">
+                  <span>Mão de obra</span>
+                  <textarea data-bind="a3.fishbone.maoDeObra" rows="3"></textarea>
+                </label>
+                <label class="field">
+                  <span>Máquina</span>
+                  <textarea data-bind="a3.fishbone.maquina" rows="3"></textarea>
+                </label>
+                <label class="field">
+                  <span>Material</span>
+                  <textarea data-bind="a3.fishbone.material" rows="3"></textarea>
+                </label>
+                <label class="field">
+                  <span>Medição</span>
+                  <textarea data-bind="a3.fishbone.medicao" rows="3"></textarea>
+                </label>
+                <label class="field">
+                  <span>Meio ambiente</span>
+                  <textarea data-bind="a3.fishbone.meioAmbiente" rows="3"></textarea>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <div class="plain-block why-block">
+            <h3>5 porquês</h3>
+            <div class="why-grid">
+              <label class="field"><span>Por quê 1</span><textarea data-bind="a3.porques.why1" rows="2"></textarea></label>
+              <label class="field"><span>Por quê 2</span><textarea data-bind="a3.porques.why2" rows="2"></textarea></label>
+              <label class="field"><span>Por quê 3</span><textarea data-bind="a3.porques.why3" rows="2"></textarea></label>
+              <label class="field"><span>Por quê 4</span><textarea data-bind="a3.porques.why4" rows="2"></textarea></label>
+              <label class="field"><span>Por quê 5</span><textarea data-bind="a3.porques.why5" rows="2"></textarea></label>
+            </div>
+          </div>
+        </section>
+
+        <section class="content-section" id="section-w2h">
+          <div class="section-head action-head">
+            <div>
+              <h2>Plano 5W2H</h2>
+              <p>Contramedidas e responsabilidades</p>
+            </div>
+            <button class="tool-button primary" type="button" id="addActionBtn" title="Adicionar ação 5W2H">
+              <svg><use href="#icon-plus"></use></svg>
+              <span>Ação</span>
+            </button>
+          </div>
+
+          <div class="table-wrap">
+            <table class="action-table" aria-label="Plano de ação 5W2H">
+              <thead>
+                <tr>
+                  <th>O quê</th>
+                  <th>Por quê</th>
+                  <th>Onde</th>
+                  <th>Quando</th>
+                  <th>Quem</th>
+                  <th>Como</th>
+                  <th>Quanto</th>
+                  <th>Status</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="actionsBody"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="content-section" id="section-pdca">
+          <div class="section-head">
+            <h2>Ciclo PDCA</h2>
+            <p>Controle da execução e padronização</p>
+          </div>
+
+          <div class="pdca-grid">
+            <label class="pdca-card plan">
+              <span>Plan</span>
+              <textarea data-bind="pdca.plan" rows="8" placeholder="Plano, metas, indicadores e recursos"></textarea>
+            </label>
+            <label class="pdca-card do">
+              <span>Do</span>
+              <textarea data-bind="pdca.do" rows="8" placeholder="Execução, treinamento e registros"></textarea>
+            </label>
+            <label class="pdca-card check">
+              <span>Check</span>
+              <textarea data-bind="pdca.check" rows="8" placeholder="Verificação de eficácia, indicadores e auditoria"></textarea>
+            </label>
+            <label class="pdca-card act">
+              <span>Act</span>
+              <textarea data-bind="pdca.act" rows="8" placeholder="Padronização, revisão documental e próximos ciclos"></textarea>
+            </label>
+          </div>
+        </section>
+
+        <section class="content-section" id="section-fechamento">
+          <div class="section-head">
+            <h2>Fechamento</h2>
+            <p>Eficácia, aprovação e lições aprendidas</p>
+          </div>
+
+          <form class="form-grid">
+            <label class="field">
+              <span>Data de verificação de eficácia</span>
+              <input data-bind="fechamento.dataEficacia" type="date" />
+            </label>
+            <label class="field">
+              <span>Resultado</span>
+              <select data-bind="fechamento.resultado">
+                <option>Eficaz</option>
+                <option>Parcialmente eficaz</option>
+                <option>Não eficaz</option>
+                <option>Em verificação</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Aprovador</span>
+              <input data-bind="fechamento.aprovador" type="text" />
+            </label>
+            <label class="field">
+              <span>Data de fechamento</span>
+              <input data-bind="fechamento.dataFechamento" type="date" />
+            </label>
+            <label class="field span-2">
+              <span>Evidência de eficácia</span>
+              <textarea data-bind="fechamento.evidenciaEficacia" rows="4"></textarea>
+            </label>
+            <label class="field">
+              <span>Padronização realizada</span>
+              <textarea data-bind="fechamento.padronizacao" rows="5"></textarea>
+            </label>
+            <label class="field">
+              <span>Lições aprendidas</span>
+              <textarea data-bind="fechamento.licoes" rows="5"></textarea>
+            </label>
+          </form>
+        </section>
+
+        <section class="content-section" id="section-relatorio">
+          <div class="section-head action-head">
+            <div>
+              <h2>Relatório RNC</h2>
+              <p>Formato pronto para impressão</p>
+            </div>
+            <button class="tool-button primary" type="button" id="printReportBtn" title="Imprimir relatório">
+              <svg><use href="#icon-print"></use></svg>
+              <span>Imprimir</span>
+            </button>
+          </div>
+          <article class="report-sheet" id="reportSheet"></article>
+        </section>
+      </main>
+    </div>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script src="app.js"></script>
+  </body>
+</html>

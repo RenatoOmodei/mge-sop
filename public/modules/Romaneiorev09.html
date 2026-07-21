@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Romaneio de Remessa para Beneficiamento</title>
+  <style>
+    :root {
+      color: #172033;
+      font-family: Arial, Helvetica, sans-serif;
+    }
+
+    body {
+      background: #f1f5f9;
+      margin: 0;
+      padding: 24px;
+    }
+
+    .page {
+      background: #ffffff;
+      border: 1px solid #cbd5e1;
+      margin: 0 auto;
+      max-width: 960px;
+      min-height: 1180px;
+      padding: 28px;
+    }
+
+    header {
+      align-items: center;
+      border-bottom: 3px solid #17456f;
+      display: flex;
+      justify-content: space-between;
+      gap: 24px;
+      padding-bottom: 16px;
+    }
+
+    .brand {
+      align-items: center;
+      display: flex;
+      gap: 16px;
+    }
+
+    .brand img {
+      height: 58px;
+      width: auto;
+    }
+
+    h1 {
+      font-size: 22px;
+      margin: 0;
+      text-transform: uppercase;
+    }
+
+    .meta {
+      display: grid;
+      gap: 6px;
+      min-width: 250px;
+    }
+
+    .box {
+      border: 1px solid #94a3b8;
+      min-height: 22px;
+      padding: 5px 7px;
+    }
+
+    .label {
+      color: #475569;
+      display: block;
+      font-size: 10px;
+      font-weight: 700;
+      margin-bottom: 3px;
+      text-transform: uppercase;
+    }
+
+    .grid {
+      display: grid;
+      gap: 10px;
+      grid-template-columns: repeat(4, 1fr);
+      margin-top: 18px;
+    }
+
+    .span-2 {
+      grid-column: span 2;
+    }
+
+    .span-4 {
+      grid-column: span 4;
+    }
+
+    table {
+      border-collapse: collapse;
+      margin-top: 20px;
+      width: 100%;
+    }
+
+    th,
+    td {
+      border: 1px solid #94a3b8;
+      font-size: 12px;
+      height: 28px;
+      padding: 6px;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      background: #e2e8f0;
+      font-size: 11px;
+      text-transform: uppercase;
+    }
+
+    .notes {
+      min-height: 110px;
+    }
+
+    .signatures {
+      display: grid;
+      gap: 28px;
+      grid-template-columns: repeat(3, 1fr);
+      margin-top: 58px;
+    }
+
+    .signature {
+      border-top: 1px solid #172033;
+      font-size: 11px;
+      padding-top: 8px;
+      text-align: center;
+      text-transform: uppercase;
+    }
+
+    .actions {
+      display: flex;
+      justify-content: flex-end;
+      margin: 0 auto 12px;
+      max-width: 1016px;
+    }
+
+    button {
+      background: #17456f;
+      border: 0;
+      border-radius: 6px;
+      color: #ffffff;
+      cursor: pointer;
+      font-weight: 700;
+      padding: 10px 14px;
+    }
+
+    @media print {
+      body {
+        background: #ffffff;
+        padding: 0;
+      }
+
+      .actions {
+        display: none;
+      }
+
+      .page {
+        border: 0;
+        margin: 0;
+        max-width: none;
+        min-height: 0;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="actions">
+    <button type="button" onclick="window.print()">Imprimir romaneio</button>
+  </div>
+
+  <main class="page">
+    <header>
+      <div class="brand">
+        <img src="/mge-logo.png" alt="MGE air">
+        <div>
+          <h1>Romaneio de remessa para beneficiamento</h1>
+          <span>Controle de pecas em poder de terceiros</span>
+        </div>
+      </div>
+      <section class="meta">
+        <div><span class="label">Romaneio</span><div class="box"></div></div>
+        <div><span class="label">Data</span><div class="box"></div></div>
+      </section>
+    </header>
+
+    <section class="grid">
+      <div class="span-2"><span class="label">Empresa beneficiadora / terceiro</span><div class="box"></div></div>
+      <div><span class="label">CNPJ</span><div class="box"></div></div>
+      <div><span class="label">Inscricao estadual</span><div class="box"></div></div>
+      <div class="span-4"><span class="label">Endereco</span><div class="box"></div></div>
+      <div><span class="label">Pedido venda / OP</span><div class="box"></div></div>
+      <div><span class="label">NF remessa</span><div class="box"></div></div>
+      <div><span class="label">Retorno previsto</span><div class="box"></div></div>
+      <div><span class="label">Transportadora</span><div class="box"></div></div>
+    </section>
+
+    <table aria-label="Itens enviados para beneficiamento">
+      <thead>
+        <tr>
+          <th style="width: 12%;">Codigo</th>
+          <th>Descricao da peca</th>
+          <th style="width: 10%;">Qtd.</th>
+          <th style="width: 10%;">Un.</th>
+          <th style="width: 24%;">Processo de beneficiamento</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td></td><td></td><td></td><td></td><td></td></tr>
+        <tr><td></td><td></td><td></td><td></td><td></td></tr>
+        <tr><td></td><td></td><td></td><td></td><td></td></tr>
+        <tr><td></td><td></td><td></td><td></td><td></td></tr>
+        <tr><td></td><td></td><td></td><td></td><td></td></tr>
+        <tr><td></td><td></td><td></td><td></td><td></td></tr>
+      </tbody>
+    </table>
+
+    <section class="grid">
+      <div class="span-4">
+        <span class="label">Observacoes</span>
+        <div class="box notes"></div>
+      </div>
+    </section>
+
+    <section class="signatures">
+      <div class="signature">Expedicao MGE</div>
+      <div class="signature">Transportadora</div>
+      <div class="signature">Recebimento terceiro</div>
+    </section>
+  </main>
+</body>
+</html>

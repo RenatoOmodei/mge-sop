@@ -1,0 +1,10 @@
+node_modules/
+dist-netlify/
+.npm-cache/
+.netlify/
+data/
+runtime/
+*.log
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal

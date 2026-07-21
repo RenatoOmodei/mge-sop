@@ -1,0 +1,32 @@
+services:
+  - type: web
+    name: mge-sop-api
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production
+      - key: DB_PROVIDER
+        value: postgres
+      - key: POSTGRES_SSL
+        value: "false"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: mge-sop-db
+          property: connectionString
+      - key: ADMIN_USER
+        value: admin
+      - key: ADMIN_PASSWORD
+        sync: false
+
+databases:
+  - name: mge-sop-db
+    plan: free
+    databaseName: mge_sop
+    user: mge_sop_user
+

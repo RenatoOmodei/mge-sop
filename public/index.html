@@ -1,0 +1,1667 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>S&amp;OP</title>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <meta name="theme-color" content="#172033">
+  <link rel="icon" href="/mge-logo.png" type="image/png">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <main class="login-screen" id="loginScreen">
+    <section class="login-panel" aria-label="Login do sistema">
+      <div class="brand-line">
+        <img class="brand-logo" src="/mge-logo.png" alt="MGE air">
+        <div>
+          <h1>S&amp;OP</h1>
+          <p>Sales &amp; Operations Planning</p>
+        </div>
+      </div>
+
+      <form id="loginForm" class="login-form">
+        <div class="field">
+          <label for="username">Usuário</label>
+          <input class="input" id="username" name="username" autocomplete="username" required placeholder="admin">
+        </div>
+        <div class="field">
+          <label for="password">Senha</label>
+          <input class="input" id="password" name="password" type="password" autocomplete="current-password" required placeholder="admin123">
+        </div>
+        <p class="error" id="loginError" hidden></p>
+        <button class="btn primary" type="submit">Entrar</button>
+      </form>
+    </section>
+  </main>
+
+  <div class="erp-shell" id="appShell" hidden>
+    <aside class="sidebar" aria-label="Menu principal">
+      <div class="sidebar-brand">
+        <img class="brand-logo sidebar-logo" src="/mge-logo.png" alt="MGE air">
+        <div>
+          <strong>S&amp;OP</strong>
+          <span>Servidor integrado</span>
+        </div>
+      </div>
+
+      <nav class="nav-list" id="mainNav">
+        <span class="nav-module-label">S&OP</span>
+        <a class="nav-item active" href="#" id="ordersNav">Pedidos de venda</a>
+        <a class="nav-item" href="#" id="dashboardNav">Dashboard</a>
+        <span class="nav-module-label">Opera&ccedil;&otilde;es</span>
+        <a class="nav-item" href="#" id="billingNav">Faturamento</a>
+        <a class="nav-item" href="#" id="loadingNav">Aguardando carregamento</a>
+        <a class="nav-item" href="#" id="thirdPartyNav">Terceiros</a>
+        <a class="nav-item" href="#" id="pcpNav">Pend&ecirc;ncias PCP</a>
+        <a class="nav-item" href="#" id="sequencingNav">Sequenciamento</a>
+        <a class="nav-item" href="#" id="apsNav">APS</a>
+        <a class="nav-item" href="#" id="productsNav">Produtos</a>
+        <span class="nav-module-label">Qualidade</span>
+        <a class="nav-item" href="#" id="qualityAlertsNav">Alertas</a>
+        <a class="nav-item" href="#" id="qualityNav">RNC / A3</a>
+        <span class="nav-module-label">Gest&atilde;o</span>
+        <a class="nav-item" href="#" id="reportsNav">Relatórios</a>
+        <a class="nav-item" href="#" id="adminNav" hidden>Cadastros</a>
+      </nav>
+    </aside>
+
+    <section class="workspace">
+      <header class="topbar">
+        <div>
+          <h2 id="pageTitle">Controle de Pedidos de Venda</h2>
+          <p id="pageSubtitle">Modulo comercial conectado ao banco do servidor local.</p>
+        </div>
+        <div class="user-box">
+          <button class="btn" id="downloadShortcut" type="button">Instalar ícone</button>
+          <span id="userName">Usuário</span>
+          <button class="btn" id="changePasswordButton" type="button">Alterar senha</button>
+          <button class="btn" id="logoutButton" type="button">Sair</button>
+        </div>
+      </header>
+
+      <section class="screen" id="ordersScreen">
+      <section class="dashboard-grid" aria-label="Resumo de pedidos">
+        <article class="dashboard-card">
+          <span>Pedidos de venda</span>
+          <strong id="dashboardOrders">0</strong>
+        </article>
+        <article class="dashboard-card">
+          <span>Equipamentos em pedidos</span>
+          <strong id="dashboardEquipment">0</strong>
+        </article>
+        <article class="dashboard-card">
+          <span>Lead time médio</span>
+          <strong id="dashboardLeadTime">0 dias</strong>
+        </article>
+        <article class="dashboard-card">
+          <span id="dashboardProductionLabel">Máquinas em produção</span>
+          <strong id="dashboardProductionMachines">0</strong>
+        </article>
+      </section>
+
+      <section class="toolbar" aria-label="Filtros de pedidos">
+        <div class="field">
+          <label for="search">Pesquisar</label>
+          <input class="input" id="search" type="search" placeholder="Pedido, cliente, SKU, OP, pedido de compra ou equipamento">
+        </div>
+        <div class="field">
+          <label for="statusFilter">Status</label>
+          <select class="input" id="statusFilter">
+            <option value="">Todos</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="scopeFilter">Situacao</label>
+          <select class="input" id="scopeFilter">
+            <option value="">Todos</option>
+            <option value="active">Ativos</option>
+            <option value="production">Em produ&ccedil;&atilde;o</option>
+            <option value="cancelled">Cancelados</option>
+            <option value="completed">Concluidos</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="dueWithinDays">Vencem em</label>
+          <input class="input" id="dueWithinDays" type="number" min="0" step="1" placeholder="7 dias">
+        </div>
+        <button class="btn" id="clearFilters" type="button">Limpar</button>
+        <button class="btn" id="exportOrders" type="button">Exportar Excel</button>
+        <button class="btn" id="informDimensions" type="button">Informar dimensional</button>
+        <button class="btn" id="editSelectedOrder" type="button" hidden disabled>Editar</button>
+        <button class="btn" id="changeSelectedStatus" type="button" disabled>Status</button>
+        <button class="btn primary" id="newOrder" type="button">Novo pedido</button>
+      </section>
+
+      <section class="table-panel" aria-label="Pedidos de venda">
+        <div class="table-header">
+          <span class="table-header-main">
+            <span id="resultCount">0 pedidos encontrados</span>
+            <span class="selected-count" id="selectedCount">0 selecionados</span>
+          </span>
+          <span class="table-pagination">
+            <button class="btn" id="ordersPrevPage" type="button">Anterior</button>
+            <span id="ordersPageInfo">P&aacute;gina 1 de 1</span>
+            <button class="btn" id="ordersNextPage" type="button">Pr&oacute;xima</button>
+          </span>
+        </div>
+
+        <div class="table-scrollbar" id="ordersTopScrollbar" aria-hidden="true">
+          <div id="ordersTopScrollbarInner"></div>
+        </div>
+        <div class="table-wrap" id="ordersTableWrap">
+          <table id="ordersTable" class="orders-table">
+            <thead>
+              <tr>
+                <th><button class="sort-button" type="button" data-sort="orderNumber">Nº Pedido</button></th>
+                <th><button class="sort-button" type="button" data-sort="commercialResponsible">Responsável comercial</button></th>
+                <th><button class="sort-button" type="button" data-sort="customer">Cliente</button></th>
+                <th><button class="sort-button" type="button" data-sort="sku">SKU</button></th>
+                <th><button class="sort-button" type="button" data-sort="itemType">Tipo</button></th>
+                <th><button class="sort-button" type="button" data-sort="productionOrder">OP</button></th>
+                <th><button class="sort-button" type="button" data-sort="purchaseOrderNumber">Pedido compra</button></th>
+                <th><button class="sort-button" type="button" data-sort="capacityTr">Capacidade (TR)</button></th>
+                <th><button class="sort-button" type="button" data-sort="productLine">Linha de produto</button></th>
+                <th><button class="sort-button" type="button" data-sort="equipment">Equipamento</button></th>
+                <th><button class="sort-button" type="button" data-sort="voltage">Tensão</button></th>
+                <th><button class="sort-button" type="button" data-sort="quantity">Quantidade</button></th>
+                <th><button class="sort-button" type="button" data-sort="leadTime">Lead Time</button></th>
+                <th><button class="sort-button" type="button" data-sort="entryDate">Data entrada</button></th>
+                <th><button class="sort-button" type="button" data-sort="originalDeliveryDate">Data entrega Original</button></th>
+                <th><button class="sort-button" type="button" data-sort="productionDeliveryDate">Data entrega Produção</button></th>
+                <th><button class="sort-button" type="button" data-sort="daysLate">Dias em atraso</button></th>
+                <th><button class="sort-button" type="button" data-sort="finalizationDate">Data finalização</button></th>
+                <th><button class="sort-button" type="button" data-sort="status">Status</button></th>
+                <th>Observações</th>
+                <th class="actions-col">Ações</th>
+              </tr>
+            </thead>
+            <tbody id="ordersBody"></tbody>
+          </table>
+          <div class="empty" id="emptyState" hidden>Nenhum pedido encontrado.</div>
+        </div>
+      </section>
+      </section>
+
+      <section class="screen third-party-screen" id="thirdPartyScreen" hidden>
+        <section class="third-party-form-panel" id="thirdPartyFormPanel">
+          <div class="table-header">
+            <span>Pe&ccedil;as em poder de terceiros</span>
+            <span>Solicite remessa de beneficiamento por romaneio e informe o pedido de compra para liberar faturamento</span>
+            <a class="btn" href="/modules/Romaneiorev09.html" target="_blank" rel="noopener">Abrir modelo de romaneio</a>
+          </div>
+          <form class="third-party-form" id="thirdPartyForm">
+            <label class="field">
+              <span>Romaneio</span>
+              <input class="input" id="thirdPartyRomaneioNumber" placeholder="Digite o romaneio ou deixe gerar automaticamente">
+            </label>
+            <label class="field">
+              <span>Data emiss&atilde;o</span>
+              <input class="input" id="thirdPartyIssueDate" type="date" required>
+            </label>
+            <label class="field">
+              <span>Retorno previsto</span>
+              <input class="input" id="thirdPartyExpectedReturnDate" type="date">
+            </label>
+            <label class="field">
+              <span>Terceiro / fornecedor</span>
+              <input class="input" id="thirdPartySupplierName" required placeholder="Empresa beneficiadora">
+            </label>
+            <label class="field">
+              <span>CNPJ terceiro</span>
+              <input class="input" id="thirdPartySupplierCnpj" placeholder="00.000.000/0000-00">
+            </label>
+            <label class="field">
+              <span>Pedido de venda</span>
+              <select class="input" id="thirdPartySalesOrderId">
+                <option value="">Sem vinculo</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>OP / ref. interna</span>
+              <input class="input" id="thirdPartySalesOrderReference" placeholder="OP ou referencia interna">
+            </label>
+            <label class="field">
+              <span>C&oacute;digo da pe&ccedil;a</span>
+              <input class="input" id="thirdPartyPartCode" required placeholder="SKU / componente">
+            </label>
+            <label class="field wide">
+              <span>Descri&ccedil;&atilde;o da pe&ccedil;a</span>
+              <input class="input" id="thirdPartyPartDescription" required placeholder="Descricao do componente">
+            </label>
+            <label class="field">
+              <span>Quantidade</span>
+              <input class="input" id="thirdPartyQuantity" type="number" min="0" step="0.001" required>
+            </label>
+            <label class="field">
+              <span>Unidade</span>
+              <input class="input" id="thirdPartyUnit" value="UN">
+            </label>
+            <label class="field wide">
+              <span>Processo de beneficiamento</span>
+              <input class="input" id="thirdPartyProcessDescription" placeholder="Pintura, corte, usinagem, tratamento etc.">
+            </label>
+            <label class="field full">
+              <span>Observa&ccedil;&otilde;es</span>
+              <textarea class="input textarea" id="thirdPartyNotes" placeholder="Instrucoes, itens enviados, condicoes de retorno"></textarea>
+            </label>
+            <p class="error full" id="thirdPartyError" hidden></p>
+            <div class="third-party-actions full">
+              <button class="btn primary" id="thirdPartySubmit" type="submit">Cadastrar remessa</button>
+            </div>
+          </form>
+        </section>
+
+        <section class="table-panel" aria-label="Controle de pecas em terceiros">
+          <div class="table-header">
+            <span id="thirdPartyCount">0 remessas</span>
+            <span>Informe o pedido de compra para enviar a remessa ao faturamento</span>
+          </div>
+          <div class="table-wrap">
+            <table class="third-party-table">
+              <thead>
+                <tr>
+                  <th>Status</th>
+                  <th>Romaneio</th>
+                  <th>Terceiro</th>
+                  <th>Pedido de venda</th>
+                  <th>Pedido compra</th>
+                  <th>C&oacute;digo</th>
+                  <th>Pe&ccedil;a</th>
+                  <th>Qtd.</th>
+                  <th>Processo</th>
+                  <th>Emiss&atilde;o</th>
+                  <th>Retorno previsto</th>
+                  <th>NF</th>
+                  <th>Faturamento</th>
+                  <th class="actions-col">A&ccedil;&otilde;es</th>
+                </tr>
+              </thead>
+              <tbody id="thirdPartyBody"></tbody>
+            </table>
+            <div class="empty" id="thirdPartyEmpty" hidden>Nenhuma pe&ccedil;a em poder de terceiros cadastrada.</div>
+          </div>
+        </section>
+      </section>
+
+      <section class="screen billing-screen" id="billingScreen" hidden>
+        <section class="table-panel" aria-label="Pedidos liberados para faturamento">
+          <div class="table-header">
+            <span>Aguardando faturamento</span>
+            <span>Clique em um pedido para tratar nota fiscal, transporte e dimensionais</span>
+          </div>
+          <div class="table-wrap">
+            <table class="billing-table">
+              <thead>
+                <tr>
+                  <th>Pedido</th>
+                  <th>Tipo solicita&ccedil;&atilde;o</th>
+                  <th>Pedido venda</th>
+                  <th>Pedido compra</th>
+                  <th>Cliente</th>
+                  <th>SKU</th>
+                  <th>Equipamento</th>
+                  <th>Qtd.</th>
+                  <th>Status</th>
+                  <th>Dimensionais</th>
+                  <th>Liberado em</th>
+                  <th class="actions-col">A&ccedil;&otilde;es</th>
+                </tr>
+              </thead>
+              <tbody id="billingBody"></tbody>
+            </table>
+            <div class="empty" id="billingEmpty" hidden>Nenhum item liberado para faturamento.</div>
+          </div>
+        </section>
+        <section class="table-panel" id="billingInvoicedPanel" aria-label="Pedidos faturados">
+          <div class="table-header">
+            <span>Hist&oacute;rico de pedidos faturados</span>
+            <span id="billingInvoicedCount">Todos os pedidos que j&aacute; tiveram faturamento registrado</span>
+            <button class="btn" id="toggleBillingInvoiced" type="button">Recolher faturados</button>
+          </div>
+          <div class="toolbar billing-invoiced-toolbar" id="billingInvoicedFilters" aria-label="Filtros de pedidos faturados">
+            <label class="field">
+              <span>Pesquisar</span>
+              <input class="input" id="billingInvoicedSearch" type="search" placeholder="Pedido, cliente, NF, transportadora ou SKU">
+            </label>
+            <label class="field">
+              <span>Tipo</span>
+              <select class="input" id="billingInvoicedType">
+                <option value="">Todos</option>
+                <option value="order">Cliente</option>
+                <option value="thirdParty">Beneficiamento</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Faturado de</span>
+              <input class="input" id="billingInvoicedDateFrom" type="date">
+            </label>
+            <label class="field">
+              <span>Faturado at&eacute;</span>
+              <input class="input" id="billingInvoicedDateTo" type="date">
+            </label>
+            <label class="field">
+              <span>Arquivo NF</span>
+              <select class="input" id="billingInvoicedDocument">
+                <option value="">Todos</option>
+                <option value="with">Com NF</option>
+                <option value="without">Sem NF</option>
+              </select>
+            </label>
+            <button class="btn" id="billingInvoicedClearFilters" type="button">Limpar</button>
+          </div>
+          <div class="table-wrap" id="billingInvoicedContent">
+            <table class="billing-table billing-invoiced-table">
+              <thead>
+                <tr>
+                  <th>Pedido</th>
+                  <th>Tipo solicita&ccedil;&atilde;o</th>
+                  <th>Pedido venda</th>
+                  <th>Pedido compra</th>
+                  <th>Cliente</th>
+                  <th>SKU</th>
+                  <th>Equipamento</th>
+                  <th>Qtd.</th>
+                  <th>NF</th>
+                  <th>Transportadora</th>
+                  <th>CNPJ transp.</th>
+                  <th>Cliente / fornecedor frete</th>
+                  <th>CNPJ cliente</th>
+                  <th>Dimensionais</th>
+                  <th>Faturado em</th>
+                  <th class="actions-col">A&ccedil;&otilde;es</th>
+                </tr>
+              </thead>
+              <tbody id="billingInvoicedBody"></tbody>
+            </table>
+            <div class="empty" id="billingInvoicedEmpty" hidden>Nenhum item faturado nesta etapa.</div>
+          </div>
+        </section>
+      </section>
+
+      <section class="screen loading-screen" id="loadingScreen" hidden>
+        <section class="table-panel" aria-label="Pedidos aguardando carregamento">
+          <div class="table-header">
+            <span>Aguardando carregamento</span>
+            <span>Itens faturados aguardando expedicao</span>
+          </div>
+          <div class="toolbar compact-toolbar" aria-label="Filtros de carregamento">
+            <label class="field">
+              <span>Filtrar</span>
+              <input class="input" id="loadingSearch" type="search" placeholder="Pedido de venda ou transportadora">
+            </label>
+          </div>
+          <div class="table-wrap">
+            <table class="loading-table">
+              <thead>
+                <tr>
+                  <th>Pedido</th>
+                  <th>Cliente</th>
+                  <th>SKU</th>
+                  <th>Equipamento</th>
+                  <th>Qtd.</th>
+                  <th>Transportadora</th>
+                  <th>NF</th>
+                  <th>Faturado em</th>
+                  <th>Dimensionais</th>
+                  <th>Arquivo NF</th>
+                  <th class="actions-col">Acoes</th>
+                </tr>
+              </thead>
+              <tbody id="loadingBody"></tbody>
+            </table>
+            <div class="empty" id="loadingEmpty" hidden>Nenhum item aguardando carregamento.</div>
+          </div>
+        </section>
+      </section>
+
+      <section class="screen pcp-screen" id="pcpScreen" hidden>
+        <section class="table-panel" aria-label="Cadastro de pendencias PCP">
+          <div class="table-header">
+            <span>Lancamento de pendencias PCP</span>
+            <span>Pedidos com componente pendente, compra ou ocorrencia de processo</span>
+            <button class="btn primary" id="pcpNewPending" type="button">Inserir nova pend&ecirc;ncia</button>
+          </div>
+          <form class="pcp-form" id="pcpPendingForm" hidden>
+            <label class="field">
+              <span>Pedido</span>
+              <select class="input" id="pcpOrder" required></select>
+            </label>
+            <label class="field">
+              <span>Codigo do componente</span>
+              <input class="input" id="pcpComponentCode" required placeholder="Ex.: COMP-001">
+            </label>
+            <label class="field">
+              <span>Tipo da pendencia</span>
+              <select class="input" id="pcpReason" required>
+                <option value="purchase">Compras</option>
+                <option value="engineering">Engenharia</option>
+                <option value="rework">Retrabalho</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Motivo</span>
+              <select class="input" id="pcpMotive" required>
+                <option value="">Selecione um motivo</option>
+              </select>
+            </label>
+            <button class="btn" id="pcpAddMotive" type="button">Cadastrar motivo</button>
+            <label class="field">
+              <span>Data prevista</span>
+              <input class="input" id="pcpExpectedResolutionDate" type="date">
+            </label>
+            <label class="field" id="pcpPurchaseOrderField" hidden>
+              <span>Pedido de compra</span>
+              <input class="input" id="pcpPurchaseOrderNumber" placeholder="Informar depois ou agora">
+            </label>
+            <label class="field pcp-notes-field">
+              <span>Observacoes</span>
+              <textarea class="input" id="pcpNotes" rows="2" placeholder="Detalhes da pendencia"></textarea>
+            </label>
+            <button class="btn primary" id="pcpPendingSubmit" type="submit">Adicionar</button>
+            <button class="btn" id="pcpCancelPending" type="button">Cancelar</button>
+            <p class="error" id="pcpPendingError" hidden></p>
+          </form>
+        </section>
+
+        <section class="toolbar pcp-toolbar" aria-label="Filtros de pendencias PCP">
+          <div class="field">
+            <label for="pcpSearch">Pesquisar</label>
+            <input class="input" id="pcpSearch" type="search" placeholder="Pedido, cliente, SKU, OP, componente, motivo ou PC">
+          </div>
+          <div class="field">
+            <label for="pcpStatusFilter">Situacao</label>
+            <select class="input" id="pcpStatusFilter">
+              <option value="open">Abertas</option>
+              <option value="resolved">Resolvidas</option>
+              <option value="">Todas</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="pcpSortField">Classificar por</label>
+            <select class="input" id="pcpSortField">
+              <option value="issueStatusLabel">Situacao</option>
+              <option value="orderNumber">Pedido</option>
+              <option value="customer">Cliente</option>
+              <option value="sku">SKU</option>
+              <option value="productionOrder">OP</option>
+              <option value="orderStatus">Status pedido</option>
+              <option value="componentCode">Componente</option>
+              <option value="reasonLabel">Pendencia</option>
+              <option value="motive">Motivo</option>
+              <option value="purchaseOrderNumber">Pedido compra</option>
+              <option value="expectedResolutionDate">Data prevista</option>
+              <option value="notes">Observacoes</option>
+              <option value="createdBy">Lancado por</option>
+              <option value="createdAt">Lancado em</option>
+              <option value="resolvedAt">Resolvido em</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="pcpSortDirection">Ordem</label>
+            <select class="input" id="pcpSortDirection">
+              <option value="asc">A-Z</option>
+              <option value="desc">Z-A</option>
+            </select>
+          </div>
+          <button class="btn" id="pcpClearFilters" type="button">Limpar</button>
+        </section>
+
+        <section class="table-panel" aria-label="Pendencias PCP registradas">
+          <div class="table-header">
+            <span id="pcpPendingCount">0 pendencias</span>
+            <span>Historico salvo no banco do servidor</span>
+          </div>
+          <div class="table-wrap">
+            <table class="pcp-table" id="pcpPendingTable">
+              <thead>
+                <tr>
+                  <th><button class="sort-button" type="button" data-pcp-sort="issueStatusLabel">Situacao</button></th>
+                  <th><button class="sort-button" type="button" data-pcp-sort="orderNumber">Pedido</button></th>
+                  <th><button class="sort-button" type="button" data-pcp-sort="customer">Cliente</button></th>
+                  <th><button class="sort-button" type="button" data-pcp-sort="sku">SKU</button></th>
+                  <th><button class="sort-button" type="button" data-pcp-sort="productionOrder">OP</button></th>
+                  <th><button class="sort-button" type="button" data-pcp-sort="orderStatus">Status pedido</button></th>
+                  <th><button class="sort-button" type="button" data-pcp-sort="componentCode">Componente</button></th>
+                  <th><button class="sort-button" type="button" data-pcp-sort="reasonLabel">Tipo</button></th>
+                  <th><button class="sort-button" type="button" data-pcp-sort="motive">Motivo</button></th>
+                  <th><button class="sort-button" type="button" data-pcp-sort="purchaseOrderNumber">Pedido compra</button></th>
+                  <th><button class="sort-button" type="button" data-pcp-sort="expectedResolutionDate">Data prevista</button></th>
+                  <th><button class="sort-button" type="button" data-pcp-sort="notes">Observacoes</button></th>
+                  <th><button class="sort-button" type="button" data-pcp-sort="createdBy">Lancado por</button></th>
+                  <th><button class="sort-button" type="button" data-pcp-sort="createdAt">Lancado em</button></th>
+                  <th><button class="sort-button" type="button" data-pcp-sort="resolvedAt">Resolvido em</button></th>
+                  <th class="actions-col">Acoes</th>
+                </tr>
+                <tr class="pcp-filter-row">
+                  <th>
+                    <select class="input" data-pcp-filter="issueStatus">
+                      <option value="">Todas</option>
+                      <option value="open">Aberta</option>
+                      <option value="resolved">Resolvida</option>
+                    </select>
+                  </th>
+                  <th><input class="input" data-pcp-filter="orderNumber" placeholder="Filtrar"></th>
+                  <th><input class="input" data-pcp-filter="customer" placeholder="Filtrar"></th>
+                  <th><input class="input" data-pcp-filter="sku" placeholder="Filtrar"></th>
+                  <th><input class="input" data-pcp-filter="productionOrder" placeholder="Filtrar"></th>
+                  <th><input class="input" data-pcp-filter="orderStatus" placeholder="Filtrar"></th>
+                  <th><input class="input" data-pcp-filter="componentCode" placeholder="Filtrar"></th>
+                  <th>
+                    <select class="input" data-pcp-filter="reason">
+                      <option value="">Todos</option>
+                      <option value="purchase">Compras</option>
+                      <option value="engineering">Engenharia</option>
+                      <option value="rework">Retrabalho</option>
+                    </select>
+                  </th>
+                  <th><input class="input" data-pcp-filter="motive" placeholder="Filtrar"></th>
+                  <th><input class="input" data-pcp-filter="purchaseOrderNumber" placeholder="Filtrar"></th>
+                  <th><input class="input" data-pcp-filter="expectedResolutionDate" placeholder="AAAA-MM-DD"></th>
+                  <th><input class="input" data-pcp-filter="notes" placeholder="Filtrar"></th>
+                  <th><input class="input" data-pcp-filter="createdBy" placeholder="Filtrar"></th>
+                  <th><input class="input" data-pcp-filter="createdAt" placeholder="Filtrar"></th>
+                  <th><input class="input" data-pcp-filter="resolvedAt" placeholder="Filtrar"></th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="pcpPendingBody"></tbody>
+            </table>
+            <div class="empty" id="pcpPendingEmpty" hidden>Nenhuma pendencia PCP encontrada.</div>
+          </div>
+        </section>
+      </section>
+
+      <section class="screen sequencing-screen" id="sequencingScreen" hidden>
+        <section class="table-panel" aria-label="Sequenciamento de atividades">
+          <div class="table-header sequencing-header">
+            <div class="table-header-main">
+              <span>Sequenciamento de atividades</span>
+              <span id="sequencingCount">0 pendencias</span>
+            </div>
+            <div class="row-actions">
+              <button class="btn primary" id="generateAllSequencing" type="button">Gerar sequenciamento</button>
+              <button class="btn" id="refreshSequencing" type="button">Atualizar</button>
+            </div>
+          </div>
+          <div class="sequencing-planner">
+            <label class="field">
+              <span>Data inicial</span>
+              <input class="input" id="sequencingStartDate" type="date">
+            </label>
+            <label class="field">
+              <span>Jornada (h/dia)</span>
+              <input class="input" id="sequencingDailyHours" type="number" min="1" max="24" step="0.5" value="8">
+            </label>
+            <button class="btn" id="printSequencingReport" type="button">Imprimir relatório</button>
+            <button class="btn" id="exportSequencingExcel" type="button">Exportar Excel</button>
+          </div>
+          <p class="error sequencing-error" id="sequencingError" hidden></p>
+          <section class="sequencing-gantt-panel" aria-label="Cronograma Gantt">
+            <div class="table-header">
+              <span>Cronograma Gantt</span>
+              <span id="sequencingGanttTimestamp">Gerado em --/--/---- --:--</span>
+              <span id="sequencingGanttSummary">Informe tempos estimados para montar o cronograma</span>
+            </div>
+            <div class="sequencing-gantt" id="sequencingGantt"></div>
+          </section>
+          <div class="sequencing-board" id="sequencingBoard"></div>
+          <div class="empty" id="sequencingEmpty" hidden>Nenhum item pendente nas atividades.</div>
+        </section>
+      </section>
+
+      <section class="screen aps-screen" id="apsScreen" hidden>
+        <div class="dashboard-grid aps-kpi-grid">
+          <div class="dashboard-card">
+            <span>Makespan</span>
+            <strong id="apsKpiMakespan">--</strong>
+          </div>
+          <div class="dashboard-card">
+            <span>OTIF previsto</span>
+            <strong id="apsKpiOtif">--</strong>
+          </div>
+          <div class="dashboard-card">
+            <span>Opera&ccedil;&otilde;es em atraso</span>
+            <strong id="apsKpiLate">--</strong>
+          </div>
+          <div class="dashboard-card">
+            <span>Gargalo principal</span>
+            <strong id="apsKpiBottleneck">--</strong>
+          </div>
+        </div>
+
+        <section class="table-panel" aria-label="Programacao APS">
+          <div class="table-header sequencing-header">
+            <div class="table-header-main">
+              <span>APS - Programa&ccedil;&atilde;o finita</span>
+              <span id="apsScheduleSummary">Sem sequenciamento calculado</span>
+            </div>
+            <div class="row-actions">
+              <button class="btn primary" id="apsRun" type="button">Recalcular APS</button>
+              <button class="btn" id="apsExport" type="button">Exportar Excel</button>
+              <button class="btn" id="apsRefresh" type="button">Atualizar</button>
+            </div>
+          </div>
+          <div class="aps-toolbar">
+            <label class="field">
+              <span>In&iacute;cio</span>
+              <input class="input" id="apsStartDate" type="date">
+            </label>
+            <label class="field">
+              <span>Prioridade</span>
+              <select class="input" id="apsPriorityRule">
+                <option value="EDD">EDD - menor prazo</option>
+                <option value="MANUAL">Sequ&ecirc;ncia manual</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Hora extra h/dia</span>
+              <input class="input" id="apsScenarioExtraHours" type="number" min="0" max="8" step="0.5" value="0">
+            </label>
+            <label class="field">
+              <span>Ganho operador %</span>
+              <input class="input" id="apsScenarioOperatorBoost" type="number" min="0" max="50" step="1" value="0">
+            </label>
+          </div>
+          <p class="error sequencing-error" id="apsError" hidden></p>
+
+          <section class="sequencing-gantt-panel" aria-label="Gantt APS">
+            <div class="table-header aps-gantt-header">
+              <span>Gantt industrial</span>
+              <span id="apsGanttTimestamp">Gerado em --/--/---- --:--</span>
+              <span class="aps-legend"><b class="legend-production"></b>Produ&ccedil;&atilde;o <b class="legend-setup"></b>Setup <b class="legend-late"></b>Atraso</span>
+            </div>
+            <div class="sequencing-gantt aps-gantt" id="apsGantt"></div>
+          </section>
+        </section>
+
+        <section class="table-panel" aria-label="Operacoes APS">
+          <div class="table-header sequencing-header">
+            <div class="table-header-main">
+              <span>Opera&ccedil;&otilde;es APS</span>
+              <span>Geradas automaticamente a partir dos status cadastrados</span>
+            </div>
+            <button class="btn primary" id="apsSaveConfig" type="button">Abrir cadastros</button>
+          </div>
+          <div class="table-wrap aps-table-wrap">
+            <table class="data-table compact-table">
+              <thead>
+                <tr>
+                  <th>Sequ&ecirc;ncia</th>
+                  <th>Status / opera&ccedil;&atilde;o</th>
+                  <th>Tipo</th>
+                  <th>Fluxo</th>
+                  <th>Setup h</th>
+                  <th>Processo h</th>
+                  <th>Centros permitidos</th>
+                </tr>
+              </thead>
+              <tbody id="apsOperationBody"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <div class="aps-analysis-grid">
+          <section class="table-panel" aria-label="Tabela de sequenciamento APS">
+            <div class="table-header">
+              <span>Sequenciamento completo</span>
+              <span id="apsScheduleCount">0 opera&ccedil;&otilde;es</span>
+            </div>
+            <div class="table-wrap aps-table-wrap">
+              <table class="data-table compact-table">
+                <thead>
+                  <tr>
+                    <th>OP</th>
+                    <th>Pedido</th>
+                    <th>Opera&ccedil;&atilde;o</th>
+                    <th>Centro</th>
+                    <th>M&aacute;quina</th>
+                    <th>Operador</th>
+                    <th>In&iacute;cio</th>
+                    <th>Fim</th>
+                    <th>Setup</th>
+                    <th>Processo</th>
+                    <th>Fila</th>
+                    <th>Status</th>
+                    <th>Prioridade</th>
+                    <th>Atraso</th>
+                  </tr>
+                </thead>
+                <tbody id="apsScheduleBody"></tbody>
+              </table>
+            </div>
+            <div class="empty" id="apsScheduleEmpty" hidden>Nenhuma opera&ccedil;&atilde;o APS pendente.</div>
+          </section>
+
+          <section class="table-panel" aria-label="Gargalos APS">
+            <div class="table-header">
+              <span>Gargalos e utiliza&ccedil;&atilde;o</span>
+              <span>Acima de 85% exige aten&ccedil;&atilde;o</span>
+            </div>
+            <div class="table-wrap aps-table-wrap">
+              <table class="data-table compact-table">
+                <thead>
+                  <tr>
+                    <th>Recurso</th>
+                    <th>Tipo</th>
+                    <th>Horas</th>
+                    <th>Utiliza&ccedil;&atilde;o</th>
+                    <th>Situa&ccedil;&atilde;o</th>
+                  </tr>
+                </thead>
+                <tbody id="apsBottleneckBody"></tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+
+        <div class="aps-analysis-grid">
+          <section class="table-panel" aria-label="Atrasos APS">
+            <div class="table-header">
+              <span>Previs&atilde;o de atrasos</span>
+              <span>Base: data prometida do pedido</span>
+            </div>
+            <div class="table-wrap aps-table-wrap">
+              <table class="data-table compact-table">
+                <thead>
+                  <tr>
+                    <th>OP</th>
+                    <th>Cliente</th>
+                    <th>Prometida</th>
+                    <th>Prevista</th>
+                    <th>Dias</th>
+                    <th>Impacto</th>
+                  </tr>
+                </thead>
+                <tbody id="apsDelayBody"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="table-panel" aria-label="Cenarios APS">
+            <div class="table-header">
+              <span>Simula&ccedil;&atilde;o de cen&aacute;rios</span>
+              <span>Atual x simulado x melhor sugest&atilde;o</span>
+            </div>
+            <div class="table-wrap aps-table-wrap">
+              <table class="data-table compact-table">
+                <thead>
+                  <tr>
+                    <th>Cen&aacute;rio</th>
+                    <th>Fim previsto</th>
+                    <th>Atraso</th>
+                    <th>OTIF</th>
+                    <th>Gargalo</th>
+                    <th>Recomenda&ccedil;&atilde;o</th>
+                  </tr>
+                </thead>
+                <tbody id="apsScenarioBody"></tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+
+        <section class="table-panel" aria-label="Recomendacoes APS">
+          <div class="table-header">
+            <span>Recomenda&ccedil;&otilde;es do APS</span>
+            <span>Explica&ccedil;&atilde;o das decis&otilde;es</span>
+          </div>
+          <div class="aps-recommendations" id="apsRecommendations"></div>
+        </section>
+      </section>
+
+      <section class="screen dashboard-screen" id="dashboardScreen" hidden>
+        <section class="release-summary-panel" aria-label="Segmenta&ccedil;&atilde;o e metas do dashboard">
+          <div class="table-header dashboard-filter-header">
+            <div>
+              <strong>Segmenta&ccedil;&atilde;o dos gr&aacute;ficos</strong>
+              <span>Metas exibidas como linha comparativa</span>
+            </div>
+            <div class="dashboard-month-filter">
+              <label for="dashboardYear">Ano</label>
+              <select class="input" id="dashboardYear">
+                <option value="">Todos</option>
+              </select>
+              <button class="btn primary" id="saveDashboardGoals" type="button">Salvar metas</button>
+            </div>
+          </div>
+          <div class="dashboard-goal-grid">
+            <label class="field">
+              <span>Vendidas/m&ecirc;s</span>
+              <input class="input" id="dashboardGoalSold" type="number" min="0" step="0.01">
+            </label>
+            <label class="field">
+              <span>Finalizadas/m&ecirc;s</span>
+              <input class="input" id="dashboardGoalFinished" type="number" min="0" step="0.01">
+            </label>
+            <label class="field">
+              <span>Lead time</span>
+              <input class="input" id="dashboardGoalLeadTime" type="number" min="0" step="0.01">
+            </label>
+            <label class="field">
+              <span>M&eacute;dia vendida/ano</span>
+              <input class="input" id="dashboardGoalAverageSold" type="number" min="0" step="0.01">
+            </label>
+            <label class="field">
+              <span>Pontualidade (%)</span>
+              <input class="input" id="dashboardGoalPunctuality" type="number" min="0" max="100" step="0.01">
+            </label>
+            <label class="field">
+              <span>M&eacute;dia produzida/ano</span>
+              <input class="input" id="dashboardGoalAverageProduced" type="number" min="0" step="0.01">
+            </label>
+          </div>
+          <p class="error" id="dashboardGoalError" hidden></p>
+        </section>
+
+        <div class="chart-grid">
+          <section class="chart-panel" aria-label="Total de máquinas vendidas por mês">
+            <div class="chart-title">
+              <h3>Máquinas vendidas por mês</h3>
+              <span>Base: data de entrada</span>
+            </div>
+            <div class="chart-canvas" id="chartMachinesSoldMonth"></div>
+          </section>
+
+          <section class="chart-panel" aria-label="Total de máquinas finalizadas por mês">
+            <div class="chart-title">
+              <h3>Máquinas finalizadas por mês</h3>
+              <span>Base: data de finalização</span>
+            </div>
+            <div class="chart-canvas" id="chartMachinesFinishedMonth"></div>
+          </section>
+
+          <section class="chart-panel" aria-label="Lead time mês a mês">
+            <div class="chart-title">
+              <h3>Lead time médio por mês</h3>
+              <span>Base: pedidos finalizados</span>
+            </div>
+            <div class="chart-canvas" id="chartLeadTimeMonth"></div>
+          </section>
+
+          <section class="chart-panel" aria-label="Média de máquinas vendidas por ano">
+            <div class="chart-title">
+              <h3>Média mensal vendida por ano</h3>
+              <span>Base: data de entrada</span>
+            </div>
+            <div class="chart-canvas" id="chartAverageMachinesYear"></div>
+          </section>
+
+          <section class="chart-panel" aria-label="Pontualidade de entrega">
+            <div class="chart-title">
+              <h3>Pontualidade de entrega</h3>
+              <span>No prazo / entregues</span>
+            </div>
+            <div class="chart-canvas" id="chartDeliveryPunctuality"></div>
+          </section>
+
+          <section class="chart-panel" aria-label="Média de itens produzidos por ano">
+            <div class="chart-title">
+              <h3>Média mensal produzida por ano</h3>
+              <span>Base: data de finalização</span>
+            </div>
+            <div class="chart-canvas" id="chartAverageProducedYear"></div>
+          </section>
+        </div>
+
+        <section class="release-summary-panel dashboard-table-panel" aria-label="M&aacute;quinas liberadas por status">
+          <div class="table-header dashboard-filter-header">
+            <div>
+              <strong>M&aacute;quinas liberadas por status</strong>
+              <span>Data da mudan&ccedil;a = conclus&atilde;o do status anterior</span>
+            </div>
+            <div class="dashboard-month-filter">
+              <label for="statusReleaseMonth">M&ecirc;s</label>
+              <input class="input" id="statusReleaseMonth" type="month">
+              <button class="btn" id="statusReleaseClear" type="button">Todos</button>
+            </div>
+          </div>
+          <div class="status-release-table-wrap">
+            <table class="status-release-table">
+              <thead>
+                <tr>
+                  <th>M&ecirc;s</th>
+                  <th>Status conclu&iacute;do</th>
+                  <th>M&aacute;quinas</th>
+                  <th>Pedidos</th>
+                  <th>&Uacute;ltima libera&ccedil;&atilde;o</th>
+                </tr>
+              </thead>
+              <tbody id="statusReleaseBody"></tbody>
+            </table>
+          </div>
+          <div class="empty" id="statusReleaseEmpty" hidden>Sem mudan&ccedil;as de status de produ&ccedil;&atilde;o registradas para o per&iacute;odo.</div>
+        </section>
+
+        <section class="release-summary-panel dashboard-table-panel" aria-label="Resumo mensal de libera&ccedil;&otilde;es">
+          <div class="chart-title release-summary-title">
+            <div>
+              <h3>Libera&ccedil;&otilde;es por m&ecirc;s</h3>
+              <span>Base: m&ecirc;s da data de finaliza&ccedil;&atilde;o</span>
+            </div>
+            <div class="dashboard-month-filter release-type-filter">
+              <label for="releaseSummaryTypeFilter">Tipo</label>
+              <select class="input" id="releaseSummaryTypeFilter">
+                <option value="">Todos</option>
+                <option value="production">Produ&ccedil;&atilde;o</option>
+                <option value="purchased">Pe&ccedil;as compradas</option>
+              </select>
+            </div>
+          </div>
+          <div class="release-summary-table" id="releaseSummaryList"></div>
+          <div class="empty" id="releaseSummaryEmpty" hidden>Sem dados de finaliza&ccedil;&atilde;o com data original para exibir.</div>
+        </section>
+      </section>
+
+      <section class="screen products-screen" id="productsScreen" hidden>
+        <section class="toolbar product-toolbar" aria-label="Filtros de produtos">
+          <div class="field">
+            <label for="productSearch">Pesquisar</label>
+            <input class="input" id="productSearch" type="search" placeholder="Codigo, linha, equipamento ou capacidade">
+          </div>
+          <div class="field">
+            <label for="productSort">Classificar por</label>
+            <select class="input" id="productSort">
+              <option value="forecastNext3Months">Previsao 3 meses</option>
+              <option value="forecastNextMonth">Previsao proximo mes</option>
+              <option value="machinesSold">Maquinas vendidas</option>
+              <option value="averageLeadTime">Lead time medio</option>
+              <option value="averageOrderInterval">Intervalo entre pedidos</option>
+              <option value="productLine">Linha de produto</option>
+              <option value="code">Codigo do produto</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="productSortDirection">Ordem</label>
+            <select class="input" id="productSortDirection">
+              <option value="desc">Maior primeiro</option>
+              <option value="asc">Menor primeiro</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="productRiskFilter">Risco</label>
+            <select class="input" id="productRiskFilter">
+              <option value="">Todos</option>
+              <option value="late">Com risco de atraso</option>
+              <option value="ok">Dentro do prazo previsto</option>
+              <option value="low-confidence">Baixa confiabilidade</option>
+            </select>
+          </div>
+          <button class="btn" id="productClearFilters" type="button">Limpar</button>
+        </section>
+
+        <section class="table-panel sop-analysis-panel" aria-label="Analise S&OP de produtos">
+          <div class="table-header">
+            <span>Analise S&OP</span>
+            <span>Demanda, capacidade e risco operacional</span>
+          </div>
+          <div class="sop-analysis-grid" id="productSopCards"></div>
+          <div class="sop-insight-list" id="productSopInsights"></div>
+        </section>
+
+        <div class="chart-grid product-chart-grid">
+          <section class="chart-panel" aria-label="Previsao de demanda">
+            <div class="chart-title">
+              <h3>Previsao de demanda</h3>
+              <span>Proximos 3 meses por linha/capacidade</span>
+            </div>
+            <div class="chart-canvas" id="productChartDemand"></div>
+          </section>
+          <section class="chart-panel" aria-label="Lead time medio">
+            <div class="chart-title">
+              <h3>Lead time medio</h3>
+              <span>Historico por linha/capacidade</span>
+            </div>
+            <div class="chart-canvas" id="productChartLeadTime"></div>
+          </section>
+          <section class="chart-panel" aria-label="Mix de produtos vendidos">
+            <div class="chart-title">
+              <h3>Mix vendido</h3>
+              <span>Top codigos por maquinas vendidas</span>
+            </div>
+            <div class="chart-canvas" id="productChartMix"></div>
+          </section>
+          <section class="chart-panel" aria-label="Risco de atraso">
+            <div class="chart-title">
+              <h3>Risco de atraso</h3>
+              <span>Pedidos abertos com atraso previsto</span>
+            </div>
+            <div class="chart-canvas" id="productChartRisk"></div>
+          </section>
+        </div>
+
+        <section class="table-panel product-forecast-panel" aria-label="Previsao de demanda por linha e capacidade">
+          <div class="table-header">
+            <span>Previs&atilde;o de demanda por linha e capacidade</span>
+            <span>Modelo estat&iacute;stico baseado no hist&oacute;rico de pedidos de produ&ccedil;&atilde;o</span>
+          </div>
+          <div class="table-wrap">
+            <table class="analytics-table product-forecast-table">
+              <thead>
+                <tr>
+                  <th>Linha de produto</th>
+                  <th>Capacidade (TR)</th>
+                  <th>Hist&oacute;rico vendido</th>
+                  <th>M&eacute;dia mensal</th>
+                  <th>Previs&atilde;o pr&oacute;ximo m&ecirc;s</th>
+                  <th>Previs&atilde;o 3 meses</th>
+                  <th>Lead time m&eacute;dio</th>
+                  <th>Pedidos abertos</th>
+                  <th>Risco de atraso</th>
+                  <th>Confiabilidade</th>
+                </tr>
+              </thead>
+              <tbody id="productForecastBody"></tbody>
+            </table>
+            <div class="empty" id="productForecastEmpty" hidden>Nenhum hist&oacute;rico suficiente para previs&atilde;o.</div>
+          </div>
+        </section>
+
+        <section class="table-panel" aria-label="Estatísticas de produtos">
+          <div class="table-header">
+            <span>Histórico por código de produto</span>
+            <span>Baseado nos pedidos de vendas salvos</span>
+          </div>
+          <div class="table-wrap">
+            <table class="analytics-table">
+              <thead>
+                <tr>
+                  <th>Código do produto</th>
+                  <th>Linha de produto</th>
+                  <th>Equipamento</th>
+                  <th>Pedidos</th>
+                  <th>Máquinas vendidas</th>
+                  <th>Lead time médio</th>
+                  <th>Intervalo médio entre pedidos</th>
+                </tr>
+              </thead>
+              <tbody id="productStatsBody"></tbody>
+            </table>
+            <div class="empty" id="productStatsEmpty" hidden>Nenhum produto encontrado.</div>
+          </div>
+        </section>
+      </section>
+
+      <section class="screen quality-screen" id="qualityScreen" hidden>
+        <section class="table-panel quality-alert-panel" aria-label="Alertas de qualidade">
+          <div class="table-header">
+            <span>Alertas de qualidade</span>
+            <span>Controle visual de alertas ativos e resolvidos</span>
+            <button class="btn primary" id="qualityAlertNew" type="button">Inserir novo alerta</button>
+          </div>
+          <div class="quality-alert-toolbar">
+            <button class="btn" id="qualityAlertResolve" type="button">Alerta resolvido</button>
+            <button class="btn" id="qualityAlertEdit" type="button">Editar alerta</button>
+            <button class="btn danger" id="qualityAlertDelete" type="button">Excluir</button>
+          </div>
+          <section class="quality-alert-editor" id="qualityAlertEditor" hidden>
+            <form class="quality-alert-form" id="qualityAlertForm">
+              <label class="field wide">
+                <span>Pedido que gerou o alerta</span>
+                <select class="input" id="qualityAlertOrderId">
+                  <option value="">Selecione um pedido</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>Pedido de venda</span>
+                <input class="input" id="qualityAlertOrderNumber" placeholder="N&ordm; pedido">
+              </label>
+              <label class="field">
+                <span>Cliente</span>
+                <input class="input" id="qualityAlertCustomer" placeholder="Cliente">
+              </label>
+              <label class="field">
+                <span>Linha de produto</span>
+                <input class="input" id="qualityAlertProductLine" placeholder="Linha">
+              </label>
+              <label class="field">
+                <span>SKU</span>
+                <input class="input" id="qualityAlertSku" placeholder="SKU">
+              </label>
+              <label class="field">
+                <span>Capacidade</span>
+                <input class="input" id="qualityAlertCapacityTr" type="number" min="0" step="0.01" placeholder="TR">
+              </label>
+              <label class="field">
+                <span>Quantidade</span>
+                <input class="input" id="qualityAlertQuantity" type="number" min="0" step="0.01" placeholder="Qtd.">
+              </label>
+
+              <section class="quality-alert-photo-card wrong">
+                <div class="quality-alert-card-header">
+                  <strong>Jeito errado</strong>
+                  <input class="input" id="qualityAlertWrongPhoto" type="file" accept=".png,.jpg,.jpeg,.webp,.gif,image/png,image/jpeg,image/webp,image/gif">
+                </div>
+                <div class="quality-alert-preview" id="qualityAlertWrongPreview">Sem foto</div>
+                <label class="field">
+                  <span>Descri&ccedil;&atilde;o</span>
+                  <textarea class="input textarea" id="qualityAlertWrongDescription" placeholder="Descreva o problema encontrado"></textarea>
+                </label>
+              </section>
+
+              <section class="quality-alert-photo-card right">
+                <div class="quality-alert-card-header">
+                  <strong>Jeito certo</strong>
+                  <input class="input" id="qualityAlertRightPhoto" type="file" accept=".png,.jpg,.jpeg,.webp,.gif,image/png,image/jpeg,image/webp,image/gif">
+                </div>
+                <div class="quality-alert-preview" id="qualityAlertRightPreview">Sem foto</div>
+                <label class="field">
+                  <span>Descri&ccedil;&atilde;o</span>
+                  <textarea class="input textarea" id="qualityAlertRightDescription" placeholder="Descreva como deve ser feito"></textarea>
+                </label>
+              </section>
+
+              <p class="error full" id="qualityAlertError" hidden></p>
+              <div class="quality-alert-actions full">
+                <button class="btn primary" id="qualityAlertSubmit" type="submit">Salvar alerta</button>
+                <button class="btn" id="qualityAlertReset" type="button">Cancelar</button>
+              </div>
+            </form>
+          </section>
+          <div class="table-wrap">
+            <table class="quality-alert-table">
+              <thead>
+                <tr>
+                  <th class="select-col"></th>
+                  <th>Status</th>
+                  <th>Pedido</th>
+                  <th>Cliente</th>
+                  <th>SKU</th>
+                  <th>Linha</th>
+                  <th>Capacidade</th>
+                  <th>Qtd.</th>
+                  <th>Emitido por</th>
+                  <th>Emitido em</th>
+                  <th>Resolvido em</th>
+                </tr>
+              </thead>
+              <tbody id="qualityAlertList"></tbody>
+            </table>
+            <div class="empty" id="qualityAlertEmpty" hidden>Nenhum alerta de qualidade emitido.</div>
+          </div>
+        </section>
+      </section>
+
+      <section class="screen quality-rnc-screen" id="qualityRncScreen" hidden>
+        <section class="module-shell" aria-label="Modulo qualidade RNC A3">
+          <iframe class="module-frame" id="qualityFrame" title="Modulo Qualidade - RNC A3" src="/modules/qualidade/RNC.html"></iframe>
+        </section>
+      </section>
+
+      <section class="screen reports-screen" id="reportsScreen" hidden>
+        <section class="table-panel" aria-label="Histórico de atividades">
+          <div class="table-header">
+            <span>Atividades executadas no sistema</span>
+            <span>Pedidos, status e clientes</span>
+          </div>
+          <div class="table-wrap">
+            <table class="activity-table">
+              <thead>
+                <tr>
+                  <th>Data / hora</th>
+                  <th>Usuário</th>
+                  <th>Ação</th>
+                  <th>Tipo</th>
+                  <th>Registro</th>
+                  <th>Detalhes</th>
+                </tr>
+              </thead>
+              <tbody id="activityLogBody"></tbody>
+            </table>
+            <div class="empty" id="activityLogEmpty" hidden>Nenhuma atividade registrada.</div>
+          </div>
+        </section>
+      </section>
+
+      <section class="screen admin-screen" id="adminScreen" hidden>
+        <div class="admin-grid">
+          <section class="admin-panel status-admin-panel admin-panel-wide" aria-label="Cadastro de status">
+            <div class="admin-panel-header">
+              <h3>Status</h3>
+              <span>Disponíveis nos pedidos</span>
+            </div>
+            <form class="admin-form status-admin-form" id="statusAdminForm">
+              <label class="field">
+                <span>Status</span>
+                <input class="input" id="statusAdminName" placeholder="Nome do status" required>
+              </label>
+              <label class="field">
+                <span>Sequ&ecirc;ncia</span>
+                <input class="input" id="statusAdminSortOrder" type="number" min="0" step="1" placeholder="0">
+              </label>
+              <label class="field">
+                <span>Tipo</span>
+                <select class="input" id="statusAdminCategory" aria-label="Tipo do status">
+                  <option value="auxiliary">Processos auxiliares</option>
+                  <option value="production">Produ&ccedil;&atilde;o</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>Fluxo</span>
+                <select class="input" id="statusAdminFlowType" aria-label="Fluxo do status">
+                  <option value="normal">Fluxo normal</option>
+                  <option value="deviation">Desvio</option>
+                </select>
+              </label>
+              <button class="btn primary" type="submit" id="statusAdminSave">Adicionar</button>
+              <button class="btn" type="button" id="statusAdminCancel" hidden>Cancelar</button>
+            </form>
+            <p class="error" id="statusAdminError" hidden></p>
+            <div class="admin-list" id="statusAdminList"></div>
+          </section>
+
+          <section class="admin-panel admin-panel-wide" aria-label="Cadastro de centros de trabalho APS">
+            <div class="admin-panel-header">
+              <h3>Centros de trabalho APS</h3>
+              <span>Recursos produtivos usados na programa&ccedil;&atilde;o</span>
+            </div>
+            <form class="admin-form aps-work-center-form" id="apsWorkCenterForm">
+              <input class="input" id="apsWorkCenterCode" placeholder="C&oacute;digo" required>
+              <input class="input" id="apsWorkCenterDescription" placeholder="Descri&ccedil;&atilde;o" required>
+              <input class="input" id="apsWorkCenterMachineCount" type="number" min="1" step="1" placeholder="M&aacute;quinas">
+              <input class="input" id="apsWorkCenterCalendar" placeholder="Calend&aacute;rio">
+              <input class="input" id="apsWorkCenterEfficiency" type="number" min="0.1" max="3" step="0.01" placeholder="Efici&ecirc;ncia">
+              <input class="input" id="apsWorkCenterCapacity" type="number" min="0" step="0.01" placeholder="Capacidade h/dia">
+              <input class="input" id="apsWorkCenterShift" placeholder="Turno">
+              <input class="input" id="apsWorkCenterMaintenance" placeholder="Manuten&ccedil;&atilde;o planejada">
+              <button class="btn primary" type="submit" id="apsWorkCenterSave">Adicionar</button>
+              <button class="btn" type="button" id="apsWorkCenterCancel" hidden>Cancelar</button>
+            </form>
+            <p class="error" id="apsWorkCenterError" hidden></p>
+            <div class="admin-list" id="apsWorkCenterList"></div>
+          </section>
+
+          <section class="admin-panel admin-panel-wide" aria-label="Cadastro de operadores APS">
+            <div class="admin-panel-header">
+              <h3>Operadores APS</h3>
+              <span>Habilidades, opera&ccedil;&otilde;es e centros habilitados</span>
+            </div>
+            <form class="admin-form aps-operator-form" id="apsOperatorForm">
+              <input class="input" id="apsOperatorCode" placeholder="C&oacute;digo" required>
+              <input class="input" id="apsOperatorName" placeholder="Nome" required>
+              <input class="input" id="apsOperatorShift" placeholder="Turno">
+              <input class="input" id="apsOperatorJourneyHours" type="number" min="1" max="24" step="0.5" placeholder="Jornada">
+              <input class="input" id="apsOperatorEfficiency" type="number" min="0.1" max="3" step="0.01" placeholder="Efici&ecirc;ncia">
+              <input class="input" id="apsOperatorSkill" placeholder="Habilidade">
+              <select class="input aps-multi-select" id="apsOperatorOperations" multiple aria-label="Opera&ccedil;&otilde;es habilitadas"></select>
+              <select class="input aps-multi-select" id="apsOperatorCenters" multiple aria-label="Centros habilitados"></select>
+              <input class="input" id="apsOperatorHourlyCost" type="number" min="0" step="0.01" placeholder="Custo hora">
+              <button class="btn primary" type="submit" id="apsOperatorSave">Adicionar</button>
+              <button class="btn" type="button" id="apsOperatorCancel" hidden>Cancelar</button>
+            </form>
+            <p class="error" id="apsOperatorError" hidden></p>
+            <div class="admin-list" id="apsOperatorList"></div>
+          </section>
+
+          <section class="admin-panel" aria-label="Cadastro de clientes">
+            <div class="admin-panel-header">
+              <h3>Clientes</h3>
+              <span>Disponíveis nos pedidos</span>
+            </div>
+            <form class="admin-form" id="customerAdminForm">
+              <input class="input" id="customerAdminName" placeholder="Nome do cliente" required>
+              <button class="btn primary" type="submit" id="customerAdminSave">Adicionar</button>
+              <button class="btn" type="button" id="customerAdminCancel" hidden>Cancelar</button>
+            </form>
+            <p class="error" id="customerAdminError" hidden></p>
+            <div class="admin-list" id="customerAdminList"></div>
+          </section>
+
+          <section class="admin-panel admin-panel-wide" aria-label="Cadastro de usuários">
+            <div class="admin-panel-header">
+              <h3>Usuários</h3>
+              <span>Acesso e permissão de edição</span>
+            </div>
+            <form class="admin-form user-admin-form" id="userAdminForm">
+              <input class="input" id="userAdminName" placeholder="Nome" required>
+              <input class="input" id="userAdminUsername" placeholder="Usuário" required>
+              <input class="input" id="userAdminPassword" type="password" placeholder="Senha">
+              <select class="input" id="userAdminRole" aria-label="Perfil">
+                <option value="viewer">Consulta</option>
+                <option value="commercial">Comercial</option>
+                <option value="production">Produ&ccedil;&atilde;o</option>
+                <option value="financial">Financeiro</option>
+                <option value="user">Usu&aacute;rio personalizado</option>
+                <option value="admin">Administrador</option>
+              </select>
+              <label class="check-field">
+                <input id="userAdminCanEditOrders" type="checkbox">
+                <span>Editar pedidos</span>
+              </label>
+              <section class="tab-access-grid" id="userAdminTabAccess" aria-label="Permiss&otilde;es por aba"></section>
+              <button class="btn primary" type="submit" id="userAdminSave">Adicionar</button>
+              <button class="btn" type="button" id="userAdminCancel" hidden>Cancelar</button>
+            </form>
+            <p class="error" id="userAdminError" hidden></p>
+            <div class="admin-list" id="userAdminList"></div>
+          </section>
+
+          <section class="admin-panel admin-panel-wide" aria-label="Saude do sistema e backups">
+            <div class="admin-panel-header">
+              <h3>Sistema</h3>
+              <span>Saude, backup e restauracao</span>
+            </div>
+            <div class="system-health-grid" id="systemHealthGrid"></div>
+            <div class="backup-actions">
+              <button class="btn primary" id="createBackup" type="button">Criar backup agora</button>
+              <button class="btn" id="refreshHealth" type="button">Atualizar</button>
+            </div>
+            <p class="error" id="backupError" hidden></p>
+            <div class="admin-list backup-list" id="backupList"></div>
+          </section>
+        </div>
+      </section>
+    </section>
+  </div>
+
+  <div class="dialog-backdrop" id="passwordDialogBackdrop" role="dialog" aria-modal="true" aria-labelledby="passwordDialogTitle">
+    <form class="dialog password-dialog" id="changePasswordForm">
+      <div class="dialog-header">
+        <h2 id="passwordDialogTitle">Alterar senha</h2>
+        <button class="icon-button" id="closePasswordDialog" type="button" aria-label="Fechar">x</button>
+      </div>
+      <div class="dialog-body password-dialog-body">
+        <div class="field full">
+          <label for="currentPassword">Senha atual</label>
+          <input class="input" id="currentPassword" type="password" autocomplete="current-password" required>
+        </div>
+        <div class="field full">
+          <label for="newPassword">Nova senha</label>
+          <input class="input" id="newPassword" type="password" autocomplete="new-password" minlength="6" required>
+        </div>
+        <div class="field full">
+          <label for="confirmNewPassword">Confirmar nova senha</label>
+          <input class="input" id="confirmNewPassword" type="password" autocomplete="new-password" minlength="6" required>
+        </div>
+        <p class="error full" id="changePasswordError" hidden></p>
+      </div>
+      <div class="dialog-footer">
+        <button class="btn" id="cancelPasswordDialog" type="button">Cancelar</button>
+        <button class="btn primary" type="submit">Salvar senha</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="dialog-backdrop" id="dialogBackdrop" role="dialog" aria-modal="true" aria-labelledby="dialogTitle">
+    <form class="dialog" id="orderForm">
+      <div class="dialog-header">
+        <h2 id="dialogTitle">Novo pedido</h2>
+        <button class="icon-button" id="closeDialog" type="button" aria-label="Fechar">x</button>
+      </div>
+
+      <div class="dialog-body">
+        <div class="field">
+          <label for="orderNumber">Nº Pedido de venda</label>
+          <input class="input" id="orderNumber" name="orderNumber" required placeholder="PV-0001">
+        </div>
+        <div class="field">
+          <label for="commercialResponsible">Responsável comercial</label>
+          <input class="input" id="commercialResponsible" name="commercialResponsible" placeholder="Nome do responsável">
+        </div>
+        <div class="field">
+          <label for="customer">Cliente</label>
+          <select class="input" id="customer" name="customer" required></select>
+        </div>
+        <div class="field">
+          <label for="sku">SKU</label>
+          <input class="input" id="sku" name="sku" required placeholder="SKU-000">
+        </div>
+        <div class="field">
+          <label for="itemType">Tipo do item</label>
+          <select class="input" id="itemType" name="itemType">
+            <option value="production">Produ&ccedil;&atilde;o</option>
+            <option value="purchased">Pe&ccedil;as compradas</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="productionOrder">OP</label>
+          <input class="input" id="productionOrder" name="productionOrder" placeholder="OP posterior">
+        </div>
+        <div class="field" id="purchaseOrderField" hidden>
+          <label for="purchaseOrderNumber">Pedido de compra</label>
+          <input class="input" id="purchaseOrderNumber" name="purchaseOrderNumber" placeholder="PC posterior">
+        </div>
+        <div class="field">
+          <label for="capacityTr">Capacidade (TR)</label>
+          <input class="input" id="capacityTr" name="capacityTr" type="number" min="0" step="0.01" placeholder="0,00">
+        </div>
+        <div class="field">
+          <label for="productLine">Linha de produto</label>
+          <input class="input" id="productLine" name="productLine" placeholder="Linha">
+        </div>
+        <div class="field">
+          <label for="equipment">Equipamento</label>
+          <input class="input" id="equipment" name="equipment" placeholder="Equipamento">
+        </div>
+        <div class="field">
+          <label for="voltage">Tensão</label>
+          <input class="input" id="voltage" name="voltage" placeholder="220V / 380V">
+        </div>
+        <div class="field">
+          <label for="quantity">Quantidade</label>
+          <input class="input" id="quantity" name="quantity" type="number" min="0" step="1" placeholder="0">
+        </div>
+        <div class="field">
+          <label for="leadTime">Lead Time</label>
+          <input class="input" id="leadTime" name="leadTime" readonly placeholder="Calculado automaticamente">
+        </div>
+        <div class="field">
+          <label for="entryDate">Data entrada</label>
+          <input class="input" id="entryDate" name="entryDate" type="date" required>
+        </div>
+        <div class="field">
+          <label for="originalDeliveryDate">Data entrega Original</label>
+          <input class="input" id="originalDeliveryDate" name="originalDeliveryDate" type="date">
+        </div>
+        <div class="field">
+          <label for="productionDeliveryDate">Data entrega Produção</label>
+          <input class="input" id="productionDeliveryDate" name="productionDeliveryDate" type="date">
+        </div>
+        <div class="field">
+          <label for="daysLatePreview">Dias em atraso</label>
+          <input class="input readonly" id="daysLatePreview" name="daysLatePreview" readonly>
+        </div>
+        <div class="field">
+          <label for="finalizationDate">Data finalização</label>
+          <input class="input" id="finalizationDate" name="finalizationDate" type="date">
+        </div>
+        <div class="field">
+          <label for="status">Status</label>
+          <select class="input" id="status" name="status" required></select>
+        </div>
+        <div class="field full">
+          <label for="notes">Observações</label>
+          <textarea class="input textarea" id="notes" name="notes" placeholder="Observações do pedido"></textarea>
+        </div>
+        <section class="field full photo-editor" id="orderPhotoSection" hidden>
+          <div class="photo-editor-header">
+            <label for="orderPhotoInput">Documentos do pedido</label>
+            <input id="orderPhotoInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif,application/pdf,text/plain,text/csv,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.ppt,.pptx" multiple>
+          </div>
+          <p class="hint">Fotos, PDFs, planilhas e documentos ficam salvos no banco do servidor e podem ser vistos por todos os usuários logados.</p>
+          <p class="error" id="orderPhotoError" hidden></p>
+          <div class="photo-grid" id="orderPhotoList"></div>
+        </section>
+        <p class="error full" id="formError" hidden></p>
+      </div>
+
+      <div class="dialog-footer">
+        <button class="btn danger" id="deleteOrder" type="button">Excluir</button>
+        <button class="btn" id="cancelDialog" type="button">Cancelar</button>
+        <button class="btn primary" type="submit">Salvar</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="dialog-backdrop" id="statusDialogBackdrop" role="dialog" aria-modal="true" aria-labelledby="statusDialogTitle">
+    <form class="dialog status-dialog" id="statusChangeForm">
+      <div class="dialog-header">
+        <h2 id="statusDialogTitle">Alterar status</h2>
+        <button class="icon-button" id="closeStatusDialog" type="button" aria-label="Fechar">x</button>
+      </div>
+      <div class="dialog-body status-dialog-body">
+        <div class="field full">
+          <label for="statusChangeSelect">Status</label>
+          <select class="input" id="statusChangeSelect" required></select>
+        </div>
+        <label class="check-field full">
+          <input id="statusChangeAllowDeviation" type="checkbox">
+          <span>Autorizar desvio / salto de sequ&ecirc;ncia</span>
+        </label>
+        <div class="field full" id="statusChangeDeviationReasonField" hidden>
+          <label for="statusChangeDeviationReason">Motivo do desvio</label>
+          <textarea class="input" id="statusChangeDeviationReason" rows="3" placeholder="Informe o motivo para pular a sequ&ecirc;ncia"></textarea>
+        </div>
+        <p class="error full" id="statusChangeError" hidden></p>
+      </div>
+      <div class="dialog-footer">
+        <button class="btn" id="cancelStatusDialog" type="button">Cancelar</button>
+        <button class="btn primary" type="submit">Salvar status</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="dialog-backdrop" id="dimensionsDialogBackdrop" role="dialog" aria-modal="true" aria-labelledby="dimensionsDialogTitle">
+    <form class="dialog dimension-dialog" id="dimensionsForm">
+      <div class="dialog-header">
+        <h2 id="dimensionsDialogTitle">Informar dimensional</h2>
+        <button class="icon-button" id="closeDimensionsDialog" type="button" aria-label="Fechar">x</button>
+      </div>
+      <div class="dialog-body dimension-dialog-body">
+        <div class="field full">
+          <label for="dimensionOrderSelect">Pedido</label>
+          <select class="input" id="dimensionOrderSelect" required></select>
+        </div>
+        <div class="field">
+          <label for="dimensionMachineHeight">Altura</label>
+          <input class="input" id="dimensionMachineHeight" type="number" min="0" step="0.001">
+        </div>
+        <div class="field">
+          <label for="dimensionMachineWidth">Largura</label>
+          <input class="input" id="dimensionMachineWidth" type="number" min="0" step="0.001">
+        </div>
+        <div class="field">
+          <label for="dimensionMachineLength">Comprimento</label>
+          <input class="input" id="dimensionMachineLength" type="number" min="0" step="0.001">
+        </div>
+        <div class="field">
+          <label for="dimensionMachineWeight">Peso l&iacute;quido</label>
+          <input class="input" id="dimensionMachineWeight" type="number" min="0" step="0.001">
+        </div>
+        <div class="field">
+          <label for="dimensionMachineGrossWeight">Peso bruto</label>
+          <input class="input" id="dimensionMachineGrossWeight" type="number" min="0" step="0.001">
+        </div>
+        <div class="field">
+          <label for="dimensionMachineVolume">Volume</label>
+          <input class="input" id="dimensionMachineVolume" type="number" min="0" step="0.001">
+        </div>
+        <p class="error full" id="dimensionsError" hidden></p>
+      </div>
+      <div class="dialog-footer">
+        <button class="btn" id="cancelDimensionsDialog" type="button">Cancelar</button>
+        <button class="btn primary" type="submit">Salvar dimensional</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="dialog-backdrop" id="billingDialogBackdrop" role="dialog" aria-modal="true" aria-labelledby="billingDialogTitle">
+    <form class="dialog billing-dialog" id="billingForm">
+      <div class="dialog-header">
+        <div>
+          <h2 id="billingDialogTitle">Tratar faturamento</h2>
+          <span class="dialog-subtitle" id="billingDialogSubtitle"></span>
+        </div>
+        <button class="icon-button" id="closeBillingDialog" type="button" aria-label="Fechar">x</button>
+      </div>
+      <div class="dialog-body billing-dialog-body">
+        <div class="field">
+          <label for="billingInvoiceNumber">N&uacute;mero da nota fiscal</label>
+          <input class="input" id="billingInvoiceNumber" placeholder="NF">
+        </div>
+        <div class="field full">
+          <label for="billingInvoiceDocument">Documento da nota fiscal</label>
+          <input class="input" id="billingInvoiceDocument" type="file" accept="application/pdf,image/png,image/jpeg,image/webp,application/xml,text/xml,.pdf,.xml,.jpg,.jpeg,.png,.webp">
+          <span class="file-hint" id="billingInvoiceDocumentInfo">Nenhum documento cadastrado.</span>
+        </div>
+        <div class="field">
+          <label for="billingCarrierName">Nome transportadora</label>
+          <input class="input" id="billingCarrierName" placeholder="Transportadora">
+        </div>
+        <div class="field">
+          <label for="billingCarrierCnpj">CNPJ transportadora</label>
+          <input class="input" id="billingCarrierCnpj" placeholder="00.000.000/0000-00">
+        </div>
+        <div class="field">
+          <label for="billingCustomerName">Nome cliente / fornecedor</label>
+          <input class="input" id="billingCustomerName" placeholder="Cliente ou fornecedor">
+        </div>
+        <div class="field">
+          <label for="billingCustomerCnpj">CNPJ cliente</label>
+          <input class="input" id="billingCustomerCnpj" placeholder="00.000.000/0000-00">
+        </div>
+        <div class="field full">
+          <label for="billingFreightAddress">Endere&ccedil;o do frete</label>
+          <input class="input" id="billingFreightAddress" placeholder="Endere&ccedil;o de entrega/frete">
+        </div>
+        <section class="billing-dimension-section full" aria-label="Dimensionais do faturamento">
+          <span>Dimensionais</span>
+          <div class="billing-dimension-grid">
+            <label class="field">
+              <span>Altura</span>
+              <input class="input" id="billingMachineHeight" type="number" min="0" step="0.001">
+            </label>
+            <label class="field">
+              <span>Largura</span>
+              <input class="input" id="billingMachineWidth" type="number" min="0" step="0.001">
+            </label>
+            <label class="field">
+              <span>Comprimento</span>
+              <input class="input" id="billingMachineLength" type="number" min="0" step="0.001">
+            </label>
+            <label class="field">
+              <span>Peso l&iacute;quido</span>
+              <input class="input" id="billingMachineWeight" type="number" min="0" step="0.001">
+            </label>
+            <label class="field">
+              <span>Peso bruto</span>
+              <input class="input" id="billingMachineGrossWeight" type="number" min="0" step="0.001">
+            </label>
+            <label class="field">
+              <span>Volume</span>
+              <input class="input" id="billingMachineVolume" type="number" min="0" step="0.001">
+            </label>
+          </div>
+        </section>
+        <p class="error full" id="billingError" hidden></p>
+      </div>
+      <div class="dialog-footer">
+        <button class="btn" id="cancelBillingDialog" type="button">Cancelar</button>
+        <button class="btn" id="saveBillingInfo" type="button">Salvar dados</button>
+        <button class="btn primary" id="markBillingInvoiced" type="submit">Faturado</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="dialog-backdrop" id="photosDialogBackdrop" role="dialog" aria-modal="true" aria-labelledby="photosDialogTitle">
+    <section class="dialog photos-dialog">
+      <div class="dialog-header">
+        <h2 id="photosDialogTitle">Documentos do pedido</h2>
+        <button class="icon-button" id="closePhotosDialog" type="button" aria-label="Fechar">x</button>
+      </div>
+      <div class="dialog-body photos-dialog-body">
+        <div class="photo-grid full" id="photosViewList"></div>
+        <div class="empty full" id="photosViewEmpty" hidden>Nenhum documento cadastrado para este pedido.</div>
+      </div>
+      <div class="dialog-footer">
+        <button class="btn" id="cancelPhotosDialog" type="button">Fechar</button>
+      </div>
+    </section>
+  </div>
+
+  <script src="/plotly-fallback.js"></script>
+  <script async src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+  <script src="/runtime-config.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>
