@@ -698,7 +698,7 @@ async function showApp(user) {
   el.appShell.hidden = false;
   ensureModuleNavigation();
   applyUserAccess();
-  loadColumnOrder();
+  await loadColumnOrder();
   setupOrdersHorizontalScrollbar();
   setScreen(canViewTab(state.currentScreen) ? state.currentScreen : firstVisibleScreen());
   await refreshReferences();
@@ -767,26 +767,71 @@ async function applyApplicationUpdate() {
   window.location.reload();
 }
 
-function loadColumnOrder() {
-  const storageKey = columnOrderStorageKey();
-  let savedOrder = [];
+async function loadColumnOrder() {
+  const localOrder = readLocalColumnOrder();
+  applyColumnOrder(localOrder);
 
   try {
-    savedOrder = JSON.parse(localStorage.getItem(storageKey) || '[]');
+    const { order } = await api('/api/preferences/order-column-order');
+    if (Array.isArray(order) && order.length) {
+      applyColumnOrder(order);
+      cacheColumnOrder();
+      return;
+    }
+
+    if (localOrder.length) {
+      await persistColumnOrder({ skipLocalCache: true });
+    }
   } catch (error) {
-    savedOrder = [];
+    applyColumnOrder(localOrder);
+  }
+}
+
+function readLocalColumnOrder() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(columnOrderStorageKey()) || '[]');
+    return Array.isArray(saved) ? saved : [];
+  } catch (error) {
+    return [];
+  }
+}
+
+function applyColumnOrder(order = []) {
+  try {
+    order = Array.isArray(order) ? order : [];
+  } catch (error) {
+    order = [];
   }
 
   const seen = new Set();
-  state.columnOrder = [...savedOrder, ...DEFAULT_ORDER_COLUMNS].filter((key) => {
+  state.columnOrder = [...order, ...DEFAULT_ORDER_COLUMNS].filter((key) => {
     if (!ORDER_COLUMN_DEFS[key] || seen.has(key)) return false;
     seen.add(key);
     return true;
   });
 }
 
-function persistColumnOrder() {
-  localStorage.setItem(columnOrderStorageKey(), JSON.stringify(state.columnOrder));
+async function persistColumnOrder(options = {}) {
+  if (!options.skipLocalCache) {
+    cacheColumnOrder();
+  }
+
+  try {
+    await api('/api/preferences/order-column-order', {
+      method: 'PUT',
+      body: { order: state.columnOrder }
+    });
+  } catch (error) {
+    // O cache local mantem a preferencia neste dispositivo ate a proxima sincronizacao.
+  }
+}
+
+function cacheColumnOrder() {
+  try {
+    localStorage.setItem(columnOrderStorageKey(), JSON.stringify(state.columnOrder));
+  } catch (error) {
+    // Navegadores em modo restrito podem bloquear localStorage; o servidor segue sendo a fonte principal.
+  }
 }
 
 function columnOrderStorageKey() {
@@ -1458,7 +1503,7 @@ function syncOrdersHorizontalScrollbar() {
 
 function renderOrderTableStructure() {
   if (!state.columnOrder.length) {
-    loadColumnOrder();
+    applyColumnOrder();
   }
 
   let colgroup = el.ordersTable.querySelector('colgroup');

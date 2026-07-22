@@ -11,7 +11,7 @@ function readArg(name) {
 
 module.exports = {
   appName: 'S&OP',
-  appVersion: '2026-07-21-netlify-frontend-v58',
+  appVersion: '2026-07-22-user-column-preferences-v59',
   rootDir,
   publicDir: path.join(rootDir, 'public'),
   dataDir,

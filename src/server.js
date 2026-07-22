@@ -20,6 +20,28 @@ const MIME_TYPES = {
   '.ico': 'image/x-icon'
 };
 const USER_ROLE_VALUES = new Set(['admin', 'user', 'commercial', 'production', 'financial', 'viewer']);
+const ORDER_COLUMN_KEYS = [
+  'orderNumber',
+  'commercialResponsible',
+  'customer',
+  'sku',
+  'itemType',
+  'productionOrder',
+  'purchaseOrderNumber',
+  'capacityTr',
+  'productLine',
+  'equipment',
+  'voltage',
+  'quantity',
+  'leadTime',
+  'entryDate',
+  'originalDeliveryDate',
+  'productionDeliveryDate',
+  'daysLate',
+  'finalizationDate',
+  'status',
+  'notes'
+];
 
 function loadHttpsOptions(settings) {
   if (!settings.httpsKeyFile || !settings.httpsCertFile) {
@@ -632,6 +654,21 @@ async function handleApi(context) {
     const body = await readJsonBody(req);
     const order = sanitizeNavOrder(body.order);
     db.setUserPreference(session.user.id, 'navOrder', JSON.stringify(order));
+    sendJson(res, 200, { order });
+    return;
+  }
+
+  if (req.method === 'GET' && pathname === '/api/preferences/order-column-order') {
+    const rawValue = db.getUserPreference(session.user.id, 'orderColumnOrder');
+    const order = parseOrderColumnOrder(rawValue);
+    sendJson(res, 200, { order });
+    return;
+  }
+
+  if (req.method === 'PUT' && pathname === '/api/preferences/order-column-order') {
+    const body = await readJsonBody(req);
+    const order = sanitizeOrderColumnOrder(body.order);
+    db.setUserPreference(session.user.id, 'orderColumnOrder', JSON.stringify(order));
     sendJson(res, 200, { order });
     return;
   }
@@ -2348,6 +2385,26 @@ function parseNavOrder(rawValue) {
 
 function sanitizeNavOrder(value) {
   const allowed = new Set(['orders', 'dashboard', 'billing', 'loading', 'thirdParty', 'pcp', 'products', 'quality', 'reports', 'admin']);
+  return sanitizeUniqueList(value, allowed);
+}
+
+function parseOrderColumnOrder(rawValue) {
+  if (!rawValue) {
+    return [];
+  }
+
+  try {
+    return sanitizeOrderColumnOrder(JSON.parse(rawValue));
+  } catch (error) {
+    return [];
+  }
+}
+
+function sanitizeOrderColumnOrder(value) {
+  return sanitizeUniqueList(value, new Set(ORDER_COLUMN_KEYS));
+}
+
+function sanitizeUniqueList(value, allowed) {
   if (!Array.isArray(value)) {
     return [];
   }
