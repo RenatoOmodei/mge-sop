@@ -28,7 +28,8 @@ function New-AppShortcut {
     [string]$TargetPath,
     [string]$Arguments,
     [string]$WorkingDirectory,
-    [string]$Description
+    [string]$Description,
+    [string]$IconPath = ""
   )
 
   $shell = New-Object -ComObject WScript.Shell
@@ -37,7 +38,20 @@ function New-AppShortcut {
   $shortcut.Arguments = $Arguments
   $shortcut.WorkingDirectory = $WorkingDirectory
   $shortcut.Description = $Description
+  if ($IconPath -and (Test-Path -LiteralPath $IconPath)) {
+    $shortcut.IconLocation = $IconPath
+  }
   $shortcut.Save()
+}
+
+$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$sourceIcon = Join-Path $scriptDir "sop-mge-icon.ico"
+$installDir = Join-Path $env:LOCALAPPDATA "MGE\SOP"
+$installedIcon = Join-Path $installDir "sop-mge-icon.ico"
+
+if (Test-Path -LiteralPath $sourceIcon) {
+  New-Item -ItemType Directory -Path $installDir -Force | Out-Null
+  Copy-Item -LiteralPath $sourceIcon -Destination $installedIcon -Force
 }
 
 $browser = Find-Browser
@@ -59,16 +73,21 @@ New-AppShortcut `
   -TargetPath $browser `
   -Arguments $arguments `
   -WorkingDirectory (Split-Path -Parent $browser) `
-  -Description "Abrir o sistema S&OP MGE"
+  -Description "Abrir o sistema S&OP MGE" `
+  -IconPath $installedIcon
 
 New-AppShortcut `
   -ShortcutPath (Join-Path $startMenu $shortcutName) `
   -TargetPath $browser `
   -Arguments $arguments `
   -WorkingDirectory (Split-Path -Parent $browser) `
-  -Description "Abrir o sistema S&OP MGE"
+  -Description "Abrir o sistema S&OP MGE" `
+  -IconPath $installedIcon
 
 Write-Host ""
 Write-Host "Instalacao concluida."
 Write-Host "Atalho criado na Area de Trabalho e no Menu Iniciar."
+if (Test-Path -LiteralPath $installedIcon) {
+  Write-Host "Icone instalado em: $installedIcon"
+}
 Write-Host "URL: $AppUrl"

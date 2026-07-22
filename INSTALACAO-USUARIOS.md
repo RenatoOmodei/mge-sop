@@ -27,7 +27,12 @@ Esse instalador cria atalhos em:
 - Area de Trabalho
 - Menu Iniciar > MGE
 
-O atalho abre o S&OP em modo aplicativo pelo Edge ou Chrome quando disponivel.
+O atalho abre o S&OP em modo aplicativo pelo Edge ou Chrome quando disponivel e usa o icone `sop-mge-icon.ico`.
+Na instalacao, o icone e copiado para:
+
+```text
+%LOCALAPPDATA%\MGE\SOP\sop-mge-icon.ico
+```
 
 ## Onde os dados ficam salvos
 
