@@ -910,6 +910,29 @@ class LocalDatabase {
   ensureAdmin() {
     const existing = this.findUserByUsername(this.settings.adminUsername);
     if (existing) {
+      if (this.settings.resetAdminPasswordOnStart) {
+        const password = hashPassword(this.settings.adminPassword);
+        this.db
+          .prepare(`
+            UPDATE users
+            SET role = 'admin',
+              can_edit_orders = 1,
+              password_salt = ?,
+              password_hash = ?,
+              password_iterations = ?,
+              password_digest = ?,
+              updated_at = ?
+            WHERE id = ?
+          `)
+          .run(
+            password.salt,
+            password.hash,
+            password.iterations,
+            password.digest,
+            new Date().toISOString(),
+            existing.id
+          );
+      }
       return;
     }
 

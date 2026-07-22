@@ -28,5 +28,7 @@ module.exports = {
   port: Number(readArg('port') || process.env.PORT || 3010),
   sessionCookieName: 'erp_session',
   adminUsername: process.env.ADMIN_USER || 'admin',
-  adminPassword: process.env.ADMIN_PASSWORD || 'admin123'
+  adminPassword: process.env.ADMIN_PASSWORD || 'admin123',
+  resetAdminPasswordOnStart: process.env.RESET_ADMIN_PASSWORD_ON_START === 'true'
+    || process.env.FORCE_ADMIN_PASSWORD_RESET === 'true'
 };
