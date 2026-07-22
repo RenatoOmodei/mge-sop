@@ -21,6 +21,7 @@ const tables = [
   'third_party_parts',
   'order_status_history',
   'pcp_pending_issues',
+  'pcp_pending_motives',
   'order_stage_sequences',
   'quality_rnc_state',
   'quality_alerts',
