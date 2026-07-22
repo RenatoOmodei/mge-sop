@@ -745,11 +745,49 @@ async function checkForApplicationUpdate() {
     }
 
     if (version !== state.appVersion) {
-      await applyApplicationUpdate();
+      await queueApplicationUpdate(version);
     }
   } catch (error) {
     // Verificacao silenciosa: se o servidor estiver reiniciando, tenta novamente no proximo ciclo.
   }
+}
+
+async function queueApplicationUpdate(version) {
+  if (isApplicationBusy()) {
+    showUpdateNotice(version);
+    return;
+  }
+
+  await applyApplicationUpdate();
+}
+
+function isApplicationBusy() {
+  return [
+    el.backdrop,
+    el.statusDialogBackdrop,
+    el.passwordDialogBackdrop,
+    el.dimensionsDialogBackdrop,
+    el.billingDialogBackdrop,
+    el.photosDialogBackdrop
+  ].some((node) => node && node.classList.contains('open'));
+}
+
+function showUpdateNotice(version) {
+  let notice = document.querySelector('#autoUpdateNotice');
+  if (!notice) {
+    notice = document.createElement('div');
+    notice.id = 'autoUpdateNotice';
+    notice.className = 'auto-update-notice';
+    notice.innerHTML = `
+      <span>Nova versao disponivel.</span>
+      <button class="btn primary" type="button">Atualizar agora</button>
+    `;
+    document.body.appendChild(notice);
+    notice.querySelector('button').addEventListener('click', () => applyApplicationUpdate());
+  }
+
+  notice.dataset.version = version;
+  notice.hidden = false;
 }
 
 async function applyApplicationUpdate() {
@@ -759,9 +797,19 @@ async function applyApplicationUpdate() {
     if ('serviceWorker' in navigator) {
       const registration = await navigator.serviceWorker.getRegistration();
       await registration?.update();
+      registration?.waiting?.postMessage({ type: 'SKIP_WAITING' });
     }
   } catch (error) {
     // Mesmo se o service worker falhar, o reload busca a versao atual pelo servidor.
+  }
+
+  try {
+    if ('caches' in window) {
+      const cacheNames = await caches.keys();
+      await Promise.all(cacheNames.map((cacheName) => caches.delete(cacheName)));
+    }
+  } catch (error) {
+    // Se a limpeza de cache falhar, o reload ainda tenta buscar a versao nova na rede.
   }
 
   window.location.reload();

@@ -19,14 +19,6 @@ Sistema local S&OP para controle de pedidos de venda, com login, servidor HTTP e
 4. Execute `iniciar-servidor.cmd`.
 5. Acesse no servidor: `http://localhost:3010`.
 
-Tambem é possível iniciar pelo executável:
-
-`ERP-Pedidos-Vendas.exe`
-
-Ele inicia o servidor local e abre o navegador automaticamente.
-
-Se a porta `3010` também estiver ocupada, o executável tenta iniciar na próxima porta livre, como `3011`.
-
 Depois de atualizar o sistema, use `reiniciar-erp.cmd` para fechar qualquer servidor antigo ainda aberto e iniciar a versão nova.
 
 Para virar o banco para PostgreSQL, execute `migrar-para-postgresql.cmd` com o servidor parado. Depois inicie com `iniciar-servidor-postgresql.cmd`.

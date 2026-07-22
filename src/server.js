@@ -63,6 +63,8 @@ function createServer(overrides = {}) {
   const settings = { ...defaultConfig, ...overrides };
   settings.dbProvider = normalizeDbProvider(settings.requestedDbProvider || settings.dbProvider);
   settings.startedAt = new Date().toISOString();
+  settings.gitCommit = readGitCommit();
+  settings.releaseVersion = buildReleaseVersion(settings);
   const httpsOptions = loadHttpsOptions(settings);
   settings.protocol = httpsOptions ? 'https' : 'http';
   const db = createDatabase(settings);
@@ -122,6 +124,19 @@ function normalizeDbProvider(value) {
   return ['postgres', 'postgresql', 'pg'].includes(provider) ? 'postgres' : 'sqlite';
 }
 
+function readGitCommit() {
+  return String(
+    process.env.RENDER_GIT_COMMIT
+    || process.env.COMMIT_SHA
+    || process.env.GIT_COMMIT
+    || ''
+  ).trim().slice(0, 12);
+}
+
+function buildReleaseVersion(settings) {
+  return [settings.appVersion, settings.gitCommit].filter(Boolean).join('+');
+}
+
 async function handleApi(context) {
   const { req, res, requestUrl, db, sessions, settings, server } = context;
   const pathname = requestUrl.pathname;
@@ -174,7 +189,9 @@ async function handleApi(context) {
   if (req.method === 'GET' && pathname === '/api/version') {
     sendJson(res, 200, {
       appName: settings.appName,
-      version: settings.appVersion
+      appVersion: settings.appVersion,
+      version: settings.releaseVersion,
+      commit: settings.gitCommit
     });
     return;
   }
@@ -183,7 +200,9 @@ async function handleApi(context) {
     sendJson(res, 200, {
       ok: true,
       appName: settings.appName,
-      version: settings.appVersion,
+      appVersion: settings.appVersion,
+      version: settings.releaseVersion,
+      commit: settings.gitCommit,
       dbProvider: settings.dbProvider || 'sqlite',
       uptimeSeconds: Math.floor(process.uptime())
     });

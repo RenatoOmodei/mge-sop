@@ -8,4 +8,5 @@ runtime/
 *.sqlite
 *.sqlite-shm
 *.sqlite-wal
+ERP-Pedidos-Vendas.exe
 Instalador-SOP-MGE-Usuarios-*.zip
