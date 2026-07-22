@@ -5,6 +5,8 @@
   "type": "commonjs",
   "scripts": {
     "start": "node src/server.js",
+    "check": "node --check src/server.js && node --check public/app.js && node --check public/service-worker.js",
+    "build": "npm run build:netlify",
     "build:netlify": "node scripts/build-netlify.js"
   },
   "engines": {

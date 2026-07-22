@@ -7,6 +7,7 @@
   <link rel="manifest" href="/manifest.webmanifest">
   <meta name="theme-color" content="#172033">
   <link rel="icon" href="/mge-logo.png" type="image/png">
+  <link rel="apple-touch-icon" href="/pwa-icon-192.png">
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
@@ -73,6 +74,18 @@
           <p id="pageSubtitle">Modulo comercial conectado ao banco do servidor local.</p>
         </div>
         <div class="user-box">
+          <div class="notification-center">
+            <button class="btn notification-toggle" id="notificationToggle" type="button" aria-expanded="false">
+              Alertas <span class="notification-badge" id="notificationBadge" hidden>0</span>
+            </button>
+            <div class="notification-panel" id="notificationPanel" hidden>
+              <div class="notification-panel-header">
+                <strong>Alertas automaticos</strong>
+                <span id="notificationSummary">Sem alertas</span>
+              </div>
+              <div class="notification-list" id="notificationList"></div>
+            </div>
+          </div>
           <button class="btn" id="downloadShortcut" type="button">Instalar ícone</button>
           <span id="userName">Usuário</span>
           <button class="btn" id="changePasswordButton" type="button">Alterar senha</button>
@@ -904,6 +917,28 @@
           </section>
         </div>
 
+        <section class="release-summary-panel ai-insights-panel" aria-label="IA operacional S&OP">
+          <div class="table-header dashboard-filter-header">
+            <div>
+              <strong>IA operacional S&OP</strong>
+              <span>Analise automatica de risco, previsao e recomendacoes</span>
+            </div>
+            <button class="btn" id="refreshAiInsights" type="button">Atualizar analise</button>
+          </div>
+          <div class="ai-card-grid" id="aiInsightCards"></div>
+          <div class="ai-insight-columns">
+            <section>
+              <h3>Leitura executiva</h3>
+              <div class="sop-insight-list" id="aiInsightList"></div>
+            </section>
+            <section>
+              <h3>Recomendacoes</h3>
+              <div class="sop-insight-list" id="aiRecommendationList"></div>
+            </section>
+          </div>
+          <div class="empty" id="aiInsightEmpty" hidden>Nenhuma analise disponivel.</div>
+        </section>
+
         <section class="release-summary-panel dashboard-table-panel" aria-label="M&aacute;quinas liberadas por status">
           <div class="table-header dashboard-filter-header">
             <div>
@@ -1344,6 +1379,7 @@
             <div class="system-health-grid" id="systemHealthGrid"></div>
             <div class="backup-actions">
               <button class="btn primary" id="createBackup" type="button">Criar backup agora</button>
+              <button class="btn" id="testBackupRestore" type="button">Testar restauracao</button>
               <button class="btn" id="refreshHealth" type="button">Atualizar</button>
             </div>
             <p class="error" id="backupError" hidden></p>

@@ -88,6 +88,34 @@ class PostgresDatabase extends LocalDatabase {
     throw new Error('Restauracao automatica PostgreSQL deve ser feita via psql/pg_restore com o servidor parado.');
   }
 
+  testLatestBackupRestore() {
+    const backup = this.latestBackup();
+    if (!backup) {
+      return {
+        ok: false,
+        backup: null,
+        mode: 'postgres-dump-integrity',
+        message: 'Nenhum backup PostgreSQL encontrado para testar.'
+      };
+    }
+
+    const backupPath = this.safeBackupPath(backup.name);
+    const stat = fs.statSync(backupPath);
+    const sample = fs.readFileSync(backupPath, 'utf8').slice(0, 1024 * 1024);
+    const hasSchema = /CREATE TABLE|COPY\s+public\.|INSERT INTO/i.test(sample);
+    const hasCoreTable = /sales_orders|users|activity_log/i.test(sample);
+    const ok = stat.size > 1024 && hasSchema && hasCoreTable;
+
+    return {
+      ok,
+      backup,
+      mode: 'postgres-dump-integrity',
+      message: ok
+        ? `Dump PostgreSQL validado. Tamanho: ${stat.size} bytes.`
+        : 'Dump PostgreSQL encontrado, mas nao contem estrutura essencial esperada.'
+    };
+  }
+
   safeBackupPath(fileName) {
     const cleanName = path.basename(String(fileName || ''));
     if (!/^sop-backup-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.sql$/.test(cleanName)) {

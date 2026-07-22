@@ -3305,6 +3305,48 @@ class LocalDatabase {
     return true;
   }
 
+  testLatestBackupRestore() {
+    const backup = this.latestBackup();
+    if (!backup) {
+      return {
+        ok: false,
+        backup: null,
+        mode: 'sqlite-copy-open',
+        message: 'Nenhum backup local encontrado para testar.'
+      };
+    }
+
+    const backupPath = this.safeBackupPath(backup.name);
+    const testDir = path.join(this.settings.dataDir || path.dirname(this.file), 'restore-tests');
+    fs.mkdirSync(testDir, { recursive: true });
+    const testFile = path.join(testDir, `restore-test-${Date.now()}.sqlite`);
+
+    let testDb = null;
+    try {
+      fs.copyFileSync(backupPath, testFile);
+      testDb = createSqliteDatabase(testFile);
+      const users = testDb.prepare('SELECT COUNT(*) AS total FROM users').get();
+      const orders = testDb.prepare('SELECT COUNT(*) AS total FROM sales_orders').get();
+      return {
+        ok: true,
+        backup,
+        mode: 'sqlite-copy-open',
+        message: `Backup aberto com sucesso. Usuarios: ${users.total}; pedidos: ${orders.total}.`
+      };
+    } finally {
+      try {
+        testDb?.close?.();
+      } catch (error) {
+        // Ignora fechamento de teste.
+      }
+      try {
+        fs.rmSync(testFile, { force: true });
+      } catch (error) {
+        // Ignora limpeza de arquivo temporario.
+      }
+    }
+  }
+
   backupDir() {
     return this.settings.backupDir || path.join(this.settings.dataDir || path.dirname(this.file), 'backups');
   }

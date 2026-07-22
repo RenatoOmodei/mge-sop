@@ -62,6 +62,9 @@ const state = {
   qualityAlertWrongPhoto: null,
   qualityAlertRightPhoto: null,
   qualityAlertEditingId: '',
+  notifications: [],
+  notificationTimer: null,
+  aiAnalysis: null,
   currentScreen: 'orders',
   realtimeSocket: null,
   realtimeRefreshTimer: null,
@@ -96,6 +99,11 @@ const el = {
   logoutButton: document.querySelector('#logoutButton'),
   changePasswordButton: document.querySelector('#changePasswordButton'),
   downloadShortcut: document.querySelector('#downloadShortcut'),
+  notificationToggle: document.querySelector('#notificationToggle'),
+  notificationBadge: document.querySelector('#notificationBadge'),
+  notificationPanel: document.querySelector('#notificationPanel'),
+  notificationSummary: document.querySelector('#notificationSummary'),
+  notificationList: document.querySelector('#notificationList'),
   mainNav: document.querySelector('#mainNav'),
   ordersNav: document.querySelector('#ordersNav'),
   dashboardNav: document.querySelector('#dashboardNav'),
@@ -251,6 +259,11 @@ const el = {
   dashboardLeadTime: document.querySelector('#dashboardLeadTime'),
   dashboardProductionLabel: document.querySelector('#dashboardProductionLabel'),
   dashboardProductionMachines: document.querySelector('#dashboardProductionMachines'),
+  refreshAiInsights: document.querySelector('#refreshAiInsights'),
+  aiInsightCards: document.querySelector('#aiInsightCards'),
+  aiInsightList: document.querySelector('#aiInsightList'),
+  aiRecommendationList: document.querySelector('#aiRecommendationList'),
+  aiInsightEmpty: document.querySelector('#aiInsightEmpty'),
   productSearch: document.querySelector('#productSearch'),
   productSort: document.querySelector('#productSort'),
   productSortDirection: document.querySelector('#productSortDirection'),
@@ -449,6 +462,7 @@ const el = {
   userAdminList: document.querySelector('#userAdminList'),
   systemHealthGrid: document.querySelector('#systemHealthGrid'),
   createBackup: document.querySelector('#createBackup'),
+  testBackupRestore: document.querySelector('#testBackupRestore'),
   refreshHealth: document.querySelector('#refreshHealth'),
   backupError: document.querySelector('#backupError'),
   backupList: document.querySelector('#backupList'),
@@ -681,6 +695,10 @@ function apiUrl(path) {
 function showLogin() {
   state.user = null;
   state.selectedOrderIds.clear();
+  clearInterval(state.notificationTimer);
+  state.notificationTimer = null;
+  state.notifications = [];
+  renderNotifications();
   if (state.realtimeSocket) {
     state.realtimeSocket.close();
     state.realtimeSocket = null;
@@ -698,11 +716,17 @@ async function showApp(user) {
   el.appShell.hidden = false;
   ensureModuleNavigation();
   applyUserAccess();
+  const requestedScreen = screenFromUrl();
+  if (requestedScreen && canViewTab(requestedScreen)) {
+    state.currentScreen = requestedScreen;
+  }
   await loadColumnOrder();
   setupOrdersHorizontalScrollbar();
   setScreen(canViewTab(state.currentScreen) ? state.currentScreen : firstVisibleScreen());
   await refreshReferences();
+  await loadSavedTablePreferences();
   if (canViewTab('orders')) await loadOrders();
+  startNotificationPolling();
   connectRealtime();
 }
 
@@ -835,6 +859,141 @@ async function loadColumnOrder() {
   }
 }
 
+const preferenceTimers = {};
+
+async function loadSavedTablePreferences() {
+  await Promise.all([
+    loadSavedPreference('ordersTableState').then(applySavedOrdersTableState),
+    loadSavedPreference('productTableState').then(applySavedProductTableState),
+    loadSavedPreference('reportTableState').then(applySavedReportTableState),
+    loadSavedPreference('pcpTableState').then(applySavedPcpTableState),
+    loadSavedPreference('billingHistoryState').then(applySavedBillingHistoryState),
+    loadSavedPreference('loadingTableState').then(applySavedLoadingTableState)
+  ]);
+}
+
+async function loadSavedPreference(key) {
+  try {
+    const { value = {} } = await api(`/api/preferences/${encodeURIComponent(key)}`);
+    return value && typeof value === 'object' ? value : {};
+  } catch (error) {
+    return {};
+  }
+}
+
+function savePreferenceLater(key, valueFactory) {
+  clearTimeout(preferenceTimers[key]);
+  preferenceTimers[key] = setTimeout(async () => {
+    try {
+      await api(`/api/preferences/${encodeURIComponent(key)}`, {
+        method: 'PUT',
+        body: { value: valueFactory() }
+      });
+    } catch (error) {
+      // Preferencias nao podem interromper a operacao principal do usuario.
+    }
+  }, 450);
+}
+
+function currentOrdersTableState() {
+  return {
+    search: el.search.value.trim(),
+    status: el.statusFilter.value,
+    scope: el.scopeFilter.value,
+    dueWithinDays: el.dueWithinDays.value.trim(),
+    sortField: state.sortField,
+    sortDirection: state.sortDirection,
+    pageSize: state.ordersPageSize
+  };
+}
+
+function applySavedOrdersTableState(value = {}) {
+  el.search.value = String(value.search || '');
+  el.statusFilter.value = String(value.status || '');
+  el.scopeFilter.value = String(value.scope || '');
+  el.dueWithinDays.value = String(value.dueWithinDays || '');
+  state.sortField = value.sortField || state.sortField;
+  state.sortDirection = value.sortDirection === 'asc' ? 'asc' : value.sortDirection === 'desc' ? 'desc' : state.sortDirection;
+  state.ordersPageSize = Number(value.pageSize) > 0 ? Number(value.pageSize) : state.ordersPageSize;
+}
+
+function applySavedProductTableState(value = {}) {
+  state.productSearch = String(value.productSearch || '');
+  state.productSortField = value.productSortField || state.productSortField;
+  state.productSortDirection = value.productSortDirection === 'asc' ? 'asc' : value.productSortDirection === 'desc' ? 'desc' : state.productSortDirection;
+  state.productRiskFilter = String(value.productRiskFilter || '');
+  state.productFilters = plainObject(value.productFilters);
+  state.productForecastFilters = plainObject(value.productForecastFilters);
+}
+
+function applySavedReportTableState(value = {}) {
+  state.activityFilters = plainObject(value.activityFilters);
+}
+
+function applySavedPcpTableState(value = {}) {
+  state.pcpColumnFilters = plainObject(value.pcpColumnFilters);
+  state.pcpSortField = value.pcpSortField || state.pcpSortField;
+  state.pcpSortDirection = value.pcpSortDirection === 'desc' ? 'desc' : 'asc';
+  if (el.pcpSearch) el.pcpSearch.value = String(value.search || '');
+  if (el.pcpStatusFilter) el.pcpStatusFilter.value = String(value.status || 'open');
+}
+
+function applySavedBillingHistoryState(value = {}) {
+  state.billingInvoicedFilters = {
+    search: String(value.search || ''),
+    sourceType: String(value.sourceType || ''),
+    dateFrom: String(value.dateFrom || ''),
+    dateTo: String(value.dateTo || ''),
+    document: String(value.document || '')
+  };
+}
+
+function applySavedLoadingTableState(value = {}) {
+  state.loadingSearch = String(value.search || '');
+  if (el.loadingSearch) el.loadingSearch.value = state.loadingSearch;
+}
+
+function plainObject(value) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+}
+
+function persistOrdersTableState() {
+  savePreferenceLater('ordersTableState', currentOrdersTableState);
+}
+
+function persistProductTableState() {
+  savePreferenceLater('productTableState', () => ({
+    productSearch: state.productSearch,
+    productSortField: state.productSortField,
+    productSortDirection: state.productSortDirection,
+    productRiskFilter: state.productRiskFilter,
+    productFilters: state.productFilters,
+    productForecastFilters: state.productForecastFilters
+  }));
+}
+
+function persistReportTableState() {
+  savePreferenceLater('reportTableState', () => ({ activityFilters: state.activityFilters }));
+}
+
+function persistPcpTableState() {
+  savePreferenceLater('pcpTableState', () => ({
+    search: el.pcpSearch ? el.pcpSearch.value.trim() : '',
+    status: el.pcpStatusFilter ? el.pcpStatusFilter.value : 'open',
+    pcpSortField: state.pcpSortField,
+    pcpSortDirection: state.pcpSortDirection,
+    pcpColumnFilters: state.pcpColumnFilters
+  }));
+}
+
+function persistBillingHistoryState() {
+  savePreferenceLater('billingHistoryState', () => state.billingInvoicedFilters);
+}
+
+function persistLoadingTableState() {
+  savePreferenceLater('loadingTableState', () => ({ search: state.loadingSearch }));
+}
+
 function readLocalColumnOrder() {
   try {
     const saved = JSON.parse(localStorage.getItem(columnOrderStorageKey()) || '[]');
@@ -910,6 +1069,7 @@ function connectRealtime() {
     }
 
     if (message.type !== 'data-change') return;
+    loadNotifications();
     const scopes = Array.isArray(message.scopes) ? message.scopes : [];
     if (!scopes.includes(state.currentScreen) && !scopes.includes('all')) return;
 
@@ -940,6 +1100,58 @@ async function refreshCurrentScreen() {
   } catch (error) {
     console.warn('Falha ao atualizar dados em tempo real', error);
   }
+  loadNotifications();
+}
+
+function startNotificationPolling() {
+  clearInterval(state.notificationTimer);
+  loadNotifications();
+  state.notificationTimer = setInterval(loadNotifications, 2 * 60 * 1000);
+}
+
+async function loadNotifications() {
+  if (!state.user) return;
+
+  try {
+    const { notifications = [] } = await api('/api/notifications');
+    state.notifications = notifications;
+    renderNotifications();
+  } catch (error) {
+    state.notifications = [];
+    renderNotifications();
+  }
+}
+
+function renderNotifications() {
+  const notifications = state.notifications || [];
+  const count = notifications.reduce((sum, item) => sum + (Number(item.count) || 1), 0);
+
+  if (el.notificationBadge) {
+    el.notificationBadge.textContent = count > 99 ? '99+' : String(count);
+    el.notificationBadge.hidden = count === 0;
+  }
+
+  if (el.notificationSummary) {
+    el.notificationSummary.textContent = count ? `${count} ponto(s) de atencao` : 'Sem alertas';
+  }
+
+  if (!el.notificationList) return;
+
+  if (!notifications.length) {
+    el.notificationList.innerHTML = '<div class="notification-empty">Nenhum alerta automatico no momento.</div>';
+    return;
+  }
+
+  el.notificationList.innerHTML = notifications.map((item) => `
+    <button class="notification-item ${escapeHtml(item.level || 'info')}" type="button" data-notification-screen="${escapeHtml(item.screen || '')}">
+      <span class="notification-level"></span>
+      <span>
+        <strong>${escapeHtml(item.title || 'Alerta')}</strong>
+        <small>${escapeHtml(item.message || '')}</small>
+      </span>
+      <em>${escapeHtml(String(item.count || 0))}</em>
+    </button>
+  `).join('');
 }
 
 function moveOrderColumn(sourceKey, targetKey, event) {
@@ -1145,6 +1357,11 @@ function openNavigationModuleForScreen(screen) {
 
 function firstVisibleScreen() {
   return USER_TAB_KEYS.find((tab) => canViewTab(tab)) || (canViewTab('admin') ? 'admin' : 'orders');
+}
+
+function screenFromUrl() {
+  const screen = new URLSearchParams(window.location.search).get('screen') || '';
+  return USER_TAB_KEYS.includes(screen) || screen === 'admin' ? screen : '';
 }
 
 async function refreshReferences() {
@@ -1733,6 +1950,7 @@ function renderBillingItems() {
   el.billingInvoicedContent.hidden = state.billingInvoicedCollapsed;
   el.billingInvoicedFilters.hidden = state.billingInvoicedCollapsed;
   el.toggleBillingInvoiced.textContent = state.billingInvoicedCollapsed ? 'Expandir faturados' : 'Recolher faturados';
+  syncBillingHistoryFilterInputs();
   const canEditBilling = canEditTab('billing');
 
   for (const order of state.billingItems) {
@@ -1791,6 +2009,15 @@ function renderBillingItems() {
     `;
     el.billingInvoicedBody.appendChild(row);
   }
+}
+
+function syncBillingHistoryFilterInputs() {
+  const filters = state.billingInvoicedFilters || {};
+  el.billingInvoicedSearch.value = filters.search || '';
+  el.billingInvoicedType.value = filters.sourceType || '';
+  el.billingInvoicedDateFrom.value = filters.dateFrom || '';
+  el.billingInvoicedDateTo.value = filters.dateTo || '';
+  el.billingInvoicedDocument.value = filters.document || '';
 }
 
 function billingInvoicedCountText(filteredCount, totalCount) {
@@ -4543,13 +4770,22 @@ function renderActivityLog() {
     row.innerHTML = `
       ${cell(formatDateTime(activity.createdAt))}
       ${cell(activity.actor)}
-      ${cell(activity.action)}
+      <td><span class="activity-pill ${activityActionClass(activity.action)}">${escapeHtml(activity.action || '-')}</span></td>
       ${cell(activity.entityType)}
       ${cell(activity.entityLabel)}
       ${cell(activity.details)}
     `;
     el.activityLogBody.appendChild(row);
   }
+}
+
+function activityActionClass(action = '') {
+  const text = normalizeText(action);
+  if (text.includes('exclu') || text.includes('restaur')) return 'danger';
+  if (text.includes('backup') || text.includes('login') || text.includes('logout')) return 'system';
+  if (text.includes('status') || text.includes('fatur')) return 'flow';
+  if (text.includes('criad') || text.includes('novo')) return 'success';
+  return 'default';
 }
 
 function renderFilterHeaders(tableKey) {
@@ -4722,6 +4958,7 @@ function applyColumnFilterFromMenu(menu) {
 
   closeColumnFilterMenu();
   config.render();
+  persistTableFilterState(active.tableKey);
 }
 
 function clearColumnFilterFromMenu() {
@@ -4732,6 +4969,19 @@ function clearColumnFilterFromMenu() {
   delete config.filters()[active.columnKey];
   closeColumnFilterMenu();
   config.render();
+  persistTableFilterState(active.tableKey);
+}
+
+function persistTableFilterState(tableKey) {
+  if (tableKey === 'products' || tableKey === 'productForecasts') {
+    persistProductTableState();
+    return;
+  }
+
+  if (tableKey === 'reports') {
+    persistReportTableState();
+    return;
+  }
 }
 
 function updateColumnFilterSearch(menu) {
@@ -4790,6 +5040,54 @@ async function loadDashboardCharts() {
   renderReleaseSummary(orders);
   renderStatusReleaseSummary(statusReleaseData.releases || []);
   renderDashboardCharts(orders);
+  loadAiInsights();
+}
+
+async function loadAiInsights() {
+  if (!el.aiInsightCards) return;
+
+  try {
+    const { analysis } = await api('/api/ai/insights');
+    state.aiAnalysis = analysis;
+    renderAiInsights();
+  } catch (error) {
+    state.aiAnalysis = null;
+    renderAiInsights();
+  }
+}
+
+function renderAiInsights() {
+  const analysis = state.aiAnalysis;
+  if (!el.aiInsightCards || !el.aiInsightList || !el.aiRecommendationList || !el.aiInsightEmpty) return;
+
+  const hasContent = analysis && (
+    (analysis.cards || []).length
+    || (analysis.insights || []).length
+    || (analysis.recommendations || []).length
+  );
+  el.aiInsightEmpty.hidden = Boolean(hasContent);
+
+  if (!hasContent) {
+    el.aiInsightCards.innerHTML = '';
+    el.aiInsightList.innerHTML = '';
+    el.aiRecommendationList.innerHTML = '';
+    return;
+  }
+
+  el.aiInsightCards.innerHTML = (analysis.cards || []).map((card) => `
+    <article class="dashboard-card ai-card">
+      <span>${escapeHtml(card.label || '-')}</span>
+      <strong>${escapeHtml(String(card.value ?? '-'))}</strong>
+    </article>
+  `).join('');
+
+  el.aiInsightList.innerHTML = (analysis.insights || [])
+    .map((text) => `<article class="sop-insight">${escapeHtml(text)}</article>`)
+    .join('');
+
+  el.aiRecommendationList.innerHTML = (analysis.recommendations || [])
+    .map((text) => `<article class="sop-insight">${escapeHtml(text)}</article>`)
+    .join('');
 }
 
 function fillDashboardYearSelect(orders) {
@@ -6186,6 +6484,7 @@ function renderSystemHealth(health) {
     ['Servidor', health.serverOnline ? 'Online' : 'Indisponivel'],
     ['Banco', health.dbConnected ? 'Conectado' : 'Erro'],
     ['Backup', health.latestBackup ? formatDateTime(health.latestBackup.createdAt) : 'Sem backup'],
+    ['Ambiente', health.environment || '-'],
     ['Versao', health.version || '-'],
     ['Sessoes', health.activeSessions ?? '-'],
     ['Tempo online', formatUptime(health.uptimeSeconds)],
@@ -6235,6 +6534,18 @@ async function createSystemBackup() {
     renderBackups(data.backups || []);
     const healthData = await api('/api/health');
     renderSystemHealth(healthData.health);
+  } catch (error) {
+    el.backupError.textContent = error.message;
+    el.backupError.hidden = false;
+  }
+}
+
+async function testBackupRestore() {
+  el.backupError.hidden = true;
+  try {
+    const data = await api('/api/admin/backups/test-restore', { method: 'POST' });
+    renderBackups(data.backups || []);
+    alert(data.result?.message || 'Teste de backup concluido.');
   } catch (error) {
     el.backupError.textContent = error.message;
     el.backupError.hidden = false;
@@ -7062,6 +7373,25 @@ el.downloadShortcut.addEventListener('click', () => {
   window.location.href = '/api/shortcut';
 });
 
+el.notificationToggle.addEventListener('click', () => {
+  const open = el.notificationPanel.hidden;
+  el.notificationPanel.hidden = !open;
+  el.notificationToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+  if (open) loadNotifications();
+});
+
+el.notificationList.addEventListener('click', (event) => {
+  const item = event.target.closest('[data-notification-screen]');
+  if (!item) return;
+
+  const screen = item.dataset.notificationScreen;
+  if (screen && canViewTab(screen)) {
+    el.notificationPanel.hidden = true;
+    el.notificationToggle.setAttribute('aria-expanded', 'false');
+    setScreen(screen);
+  }
+});
+
 el.mainNav.addEventListener('click', (event) => {
   const button = event.target.closest('[data-module-toggle]');
   if (!button) return;
@@ -7184,27 +7514,32 @@ el.search.addEventListener('input', () => {
   clearTimeout(el.search.timer);
   el.search.timer = setTimeout(() => {
     state.ordersPage = 1;
+    persistOrdersTableState();
     loadOrders();
   }, 220);
 });
 
 el.statusFilter.addEventListener('change', () => {
   state.ordersPage = 1;
+  persistOrdersTableState();
   loadOrders();
 });
 el.scopeFilter.addEventListener('change', () => {
   state.ordersPage = 1;
+  persistOrdersTableState();
   loadOrders();
 });
 el.dueWithinDays.addEventListener('input', () => {
   clearTimeout(el.dueWithinDays.timer);
   el.dueWithinDays.timer = setTimeout(() => {
     state.ordersPage = 1;
+    persistOrdersTableState();
     loadOrders();
   }, 220);
 });
 el.dueWithinDays.addEventListener('change', () => {
   state.ordersPage = 1;
+  persistOrdersTableState();
   loadOrders();
 });
 el.ordersPrevPage.addEventListener('click', () => {
@@ -7231,15 +7566,23 @@ el.pcpPendingForm.addEventListener('submit', async (event) => {
 });
 el.pcpSearch.addEventListener('input', () => {
   clearTimeout(el.pcpSearch.timer);
-  el.pcpSearch.timer = setTimeout(loadPcpPendingIssues, 220);
+  el.pcpSearch.timer = setTimeout(() => {
+    persistPcpTableState();
+    loadPcpPendingIssues();
+  }, 220);
 });
-el.pcpStatusFilter.addEventListener('change', loadPcpPendingIssues);
+el.pcpStatusFilter.addEventListener('change', () => {
+  persistPcpTableState();
+  loadPcpPendingIssues();
+});
 el.pcpSortField.addEventListener('change', () => {
   state.pcpSortField = el.pcpSortField.value;
+  persistPcpTableState();
   renderPcpPendingIssues();
 });
 el.pcpSortDirection.addEventListener('change', () => {
   state.pcpSortDirection = el.pcpSortDirection.value;
+  persistPcpTableState();
   renderPcpPendingIssues();
 });
 el.pcpClearFilters.addEventListener('click', () => {
@@ -7250,6 +7593,7 @@ el.pcpClearFilters.addEventListener('click', () => {
   state.pcpColumnFilters = {};
   el.pcpSortField.value = state.pcpSortField;
   el.pcpSortDirection.value = state.pcpSortDirection;
+  persistPcpTableState();
   loadPcpPendingIssues();
 });
 el.pcpPendingTable.addEventListener('click', (event) => {
@@ -7270,6 +7614,7 @@ el.pcpPendingTable.addEventListener('input', (event) => {
   if (!field) return;
 
   state.pcpColumnFilters[field.dataset.pcpFilter] = field.value;
+  persistPcpTableState();
   renderPcpPendingIssues();
 });
 el.pcpPendingTable.addEventListener('change', (event) => {
@@ -7277,6 +7622,7 @@ el.pcpPendingTable.addEventListener('change', (event) => {
   if (!field) return;
 
   state.pcpColumnFilters[field.dataset.pcpFilter] = field.value;
+  persistPcpTableState();
   renderPcpPendingIssues();
 });
 el.generateAllSequencing.addEventListener('click', () => generateSequencing(''));
@@ -7377,20 +7723,25 @@ el.releaseSummaryTypeFilter.addEventListener('change', () => {
   }
 });
 el.saveDashboardGoals.addEventListener('click', saveDashboardGoals);
+el.refreshAiInsights.addEventListener('click', loadAiInsights);
 el.productSearch.addEventListener('input', () => {
   state.productSearch = el.productSearch.value.trim();
+  persistProductTableState();
   renderProductScreen();
 });
 el.productSort.addEventListener('change', () => {
   state.productSortField = el.productSort.value;
+  persistProductTableState();
   renderProductScreen();
 });
 el.productSortDirection.addEventListener('change', () => {
   state.productSortDirection = el.productSortDirection.value;
+  persistProductTableState();
   renderProductScreen();
 });
 el.productRiskFilter.addEventListener('change', () => {
   state.productRiskFilter = el.productRiskFilter.value;
+  persistProductTableState();
   renderProductScreen();
 });
 el.productClearFilters.addEventListener('click', () => {
@@ -7400,6 +7751,7 @@ el.productClearFilters.addEventListener('click', () => {
   state.productRiskFilter = '';
   state.productFilters = {};
   state.productForecastFilters = {};
+  persistProductTableState();
   renderProductScreen();
 });
 
@@ -7457,6 +7809,7 @@ el.clearFilters.addEventListener('click', () => {
   el.scopeFilter.value = '';
   el.dueWithinDays.value = '';
   state.ordersPage = 1;
+  persistOrdersTableState();
   loadOrders();
 });
 
@@ -7468,22 +7821,27 @@ el.toggleBillingInvoiced.addEventListener('click', () => {
 });
 el.billingInvoicedSearch.addEventListener('input', () => {
   state.billingInvoicedFilters.search = el.billingInvoicedSearch.value.trim();
+  persistBillingHistoryState();
   renderBillingItems();
 });
 el.billingInvoicedType.addEventListener('change', () => {
   state.billingInvoicedFilters.sourceType = el.billingInvoicedType.value;
+  persistBillingHistoryState();
   renderBillingItems();
 });
 el.billingInvoicedDateFrom.addEventListener('change', () => {
   state.billingInvoicedFilters.dateFrom = el.billingInvoicedDateFrom.value;
+  persistBillingHistoryState();
   renderBillingItems();
 });
 el.billingInvoicedDateTo.addEventListener('change', () => {
   state.billingInvoicedFilters.dateTo = el.billingInvoicedDateTo.value;
+  persistBillingHistoryState();
   renderBillingItems();
 });
 el.billingInvoicedDocument.addEventListener('change', () => {
   state.billingInvoicedFilters.document = el.billingInvoicedDocument.value;
+  persistBillingHistoryState();
   renderBillingItems();
 });
 el.billingInvoicedClearFilters.addEventListener('click', () => {
@@ -7499,10 +7857,12 @@ el.billingInvoicedClearFilters.addEventListener('click', () => {
   el.billingInvoicedDateFrom.value = '';
   el.billingInvoicedDateTo.value = '';
   el.billingInvoicedDocument.value = '';
+  persistBillingHistoryState();
   renderBillingItems();
 });
 el.loadingSearch.addEventListener('input', () => {
   state.loadingSearch = el.loadingSearch.value.trim();
+  persistLoadingTableState();
   renderLoadingItems();
 });
 
@@ -7542,6 +7902,7 @@ el.ordersTable.addEventListener('click', (event) => {
   }
 
   state.ordersPage = 1;
+  persistOrdersTableState();
   loadOrders();
 });
 
@@ -8054,6 +8415,7 @@ el.apsOperatorCancel.addEventListener('click', resetApsOperatorForm);
 el.customerAdminCancel.addEventListener('click', resetCustomerAdminForm);
 el.userAdminCancel.addEventListener('click', resetUserAdminForm);
 el.createBackup.addEventListener('click', createSystemBackup);
+el.testBackupRestore.addEventListener('click', testBackupRestore);
 el.refreshHealth.addEventListener('click', refreshSystemHealth);
 el.backupList.addEventListener('click', (event) => {
   const button = event.target.closest('[data-restore-backup]');

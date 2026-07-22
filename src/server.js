@@ -42,6 +42,14 @@ const ORDER_COLUMN_KEYS = [
   'status',
   'notes'
 ];
+const USER_PREFERENCE_KEYS = new Set([
+  'ordersTableState',
+  'productTableState',
+  'reportTableState',
+  'pcpTableState',
+  'billingHistoryState',
+  'loadingTableState'
+]);
 
 function loadHttpsOptions(settings) {
   if (!settings.httpsKeyFile || !settings.httpsCertFile) {
@@ -137,6 +145,218 @@ function buildReleaseVersion(settings) {
   return [settings.appVersion, settings.gitCommit].filter(Boolean).join('+');
 }
 
+function buildOperationalNotifications(db, session) {
+  const today = dateOnly(new Date());
+  const notifications = [];
+
+  if (canViewTab(session, 'orders')) {
+    const activeOrders = db.listOrders({ scope: 'active' });
+    const overdueOrders = activeOrders.filter((order) => Number(order.daysLate) > 0);
+    const dueSoonOrders = activeOrders.filter((order) => {
+      const days = daysUntil(order.originalDeliveryDate, today);
+      return days >= 0 && days <= 7;
+    });
+
+    if (overdueOrders.length) {
+      notifications.push(notificationItem({
+        level: 'critical',
+        screen: 'orders',
+        title: 'Pedidos em atraso',
+        message: `${overdueOrders.length} pedido(s) ativo(s) passaram da data original.`,
+        count: overdueOrders.length
+      }));
+    }
+
+    if (dueSoonOrders.length) {
+      notifications.push(notificationItem({
+        level: 'warning',
+        screen: 'orders',
+        title: 'Pedidos vencendo em ate 7 dias',
+        message: `${dueSoonOrders.length} pedido(s) exigem acompanhamento proximo.`,
+        count: dueSoonOrders.length
+      }));
+    }
+  }
+
+  if (canViewTab(session, 'pcp')) {
+    const pcpOverdue = db.listPcpPendingIssues({ status: 'open' })
+      .filter((issue) => issue.expectedResolutionDate && issue.expectedResolutionDate < today);
+    if (pcpOverdue.length) {
+      notifications.push(notificationItem({
+        level: 'critical',
+        screen: 'pcp',
+        title: 'Pendencias PCP atrasadas',
+        message: `${pcpOverdue.length} pendencia(s) passaram da data prevista.`,
+        count: pcpOverdue.length
+      }));
+    }
+  }
+
+  if (canViewTab(session, 'quality')) {
+    const qualityAlerts = db.listQualityAlerts({ includePhotos: false })
+      .filter((alert) => String(alert.status || 'open') === 'open');
+    if (qualityAlerts.length) {
+      notifications.push(notificationItem({
+        level: 'warning',
+        screen: 'quality',
+        title: 'Alertas de qualidade ativos',
+        message: `${qualityAlerts.length} alerta(s) precisam de ciencia ou resolucao.`,
+        count: qualityAlerts.length
+      }));
+    }
+  }
+
+  if (canViewTab(session, 'billing')) {
+    const released = db.listOrdersByBillingStage('released').length + db.listThirdPartyPartsByBillingStage('released').length;
+    if (released) {
+      notifications.push(notificationItem({
+        level: 'info',
+        screen: 'billing',
+        title: 'Itens aguardando faturamento',
+        message: `${released} item(ns) disponiveis para faturar.`,
+        count: released
+      }));
+    }
+  }
+
+  if (canViewTab(session, 'loading')) {
+    const invoiced = db.listOrdersByBillingStage('invoiced').length + db.listThirdPartyPartsByBillingStage('invoiced').length;
+    if (invoiced) {
+      notifications.push(notificationItem({
+        level: 'info',
+        screen: 'loading',
+        title: 'Itens aguardando carregamento',
+        message: `${invoiced} item(ns) faturados aguardam carregamento.`,
+        count: invoiced
+      }));
+    }
+  }
+
+  if (canViewTab(session, 'products')) {
+    const forecastRisks = db.listProductDemandForecasts()
+      .filter((forecast) => Number(forecast.predictedLateOrders) > 0);
+    if (forecastRisks.length) {
+      notifications.push(notificationItem({
+        level: 'warning',
+        screen: 'products',
+        title: 'Risco previsto de atraso',
+        message: `${forecastRisks.length} linha(s)/capacidade(s) com risco no historico.`,
+        count: forecastRisks.length
+      }));
+    }
+  }
+
+  return notifications.slice(0, 8);
+}
+
+function notificationItem({ level, screen, title, message, count }) {
+  return {
+    id: `${screen}-${normalizeId(title)}`,
+    level,
+    screen,
+    title,
+    message,
+    count: Number(count) || 0,
+    createdAt: new Date().toISOString()
+  };
+}
+
+function buildOperationalAiInsights(db, session) {
+  const notifications = buildOperationalNotifications(db, session);
+  const forecasts = canViewTab(session, 'products') ? db.listProductDemandForecasts() : [];
+  const activeOrders = canViewTab(session, 'orders') ? db.listOrders({ scope: 'active' }) : [];
+  const openPcp = canViewTab(session, 'pcp') ? db.listPcpPendingIssues({ status: 'open' }) : [];
+  const topDemand = maxBy(forecasts, (item) => Number(item.forecastNext3Months) || 0);
+  const topRisk = maxBy(forecasts, (item) => Number(item.predictedLateOrders) || 0);
+  const lateOrders = activeOrders.filter((order) => Number(order.daysLate) > 0);
+  const productionOpen = activeOrders.filter((order) => order.itemType === 'production');
+
+  const cards = [
+    { label: 'Pedidos ativos', value: activeOrders.length },
+    { label: 'Pedidos em atraso', value: lateOrders.length },
+    { label: 'Pendencias PCP abertas', value: openPcp.length },
+    { label: 'Riscos previstos', value: forecasts.filter((item) => Number(item.predictedLateOrders) > 0).length }
+  ];
+
+  const insights = [];
+  if (topDemand) {
+    insights.push(`Maior demanda prevista: ${topDemand.productLine || '-'} ${topDemand.capacityLabel || ''} com ${formatNumber(topDemand.forecastNext3Months)} maquina(s) para 3 meses.`);
+  }
+  if (topRisk && Number(topRisk.predictedLateOrders) > 0) {
+    insights.push(`Risco de atraso mais forte: ${topRisk.productLine || '-'} ${topRisk.capacityLabel || ''}, com ${formatNumber(topRisk.predictedLateOrders)} pedido(s) potencialmente afetados.`);
+  }
+  if (lateOrders.length) {
+    insights.push(`${lateOrders.length} pedido(s) ativo(s) ja estao em atraso; priorizar negociacao de prazo e sequenciamento.`);
+  }
+  if (openPcp.length) {
+    insights.push(`${openPcp.length} pendencia(s) PCP aberta(s) podem impactar o fluxo de producao.`);
+  }
+  if (!insights.length) {
+    insights.push('Carteira sem risco operacional relevante pelos criterios atuais.');
+  }
+
+  const recommendations = [
+    lateOrders.length ? 'Revisar diariamente pedidos em atraso e registrar plano de recuperacao.' : 'Manter monitoramento preventivo dos pedidos proximos do vencimento.',
+    topRisk && Number(topRisk.predictedLateOrders) > 0 ? 'Cruzar previsao de demanda com capacidade dos centros de trabalho no APS.' : 'Usar a previsao para ajustar compras e recursos antes da abertura da OP.',
+    openPcp.length ? 'Converter pendencias PCP vencidas em plano de acao com responsavel e data.' : 'Manter PCP sem pendencias vencidas como indicador de saude do fluxo.'
+  ];
+
+  return {
+    generatedAt: new Date().toISOString(),
+    mode: 'rules-engine',
+    llmReady: true,
+    cards,
+    insights,
+    recommendations,
+    notifications,
+    productionOpenOrders: productionOpen.length
+  };
+}
+
+function normalizeId(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80);
+}
+
+function maxBy(items, iteratee) {
+  let winner = null;
+  let winnerValue = -Infinity;
+  for (const item of items || []) {
+    const value = Number(iteratee(item));
+    if (Number.isFinite(value) && value > winnerValue) {
+      winner = item;
+      winnerValue = value;
+    }
+  }
+  return winner;
+}
+
+function formatNumber(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return '0';
+  return new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 1 }).format(number);
+}
+
+function dateOnly(value) {
+  const date = new Date(value);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function daysUntil(value, today = dateOnly(new Date())) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ''))) return Infinity;
+  const start = Date.UTC(Number(today.slice(0, 4)), Number(today.slice(5, 7)) - 1, Number(today.slice(8, 10)));
+  const end = Date.UTC(Number(value.slice(0, 4)), Number(value.slice(5, 7)) - 1, Number(value.slice(8, 10)));
+  return Math.floor((end - start) / 86400000);
+}
+
 async function handleApi(context) {
   const { req, res, requestUrl, db, sessions, settings, server } = context;
   const pathname = requestUrl.pathname;
@@ -191,7 +411,8 @@ async function handleApi(context) {
       appName: settings.appName,
       appVersion: settings.appVersion,
       version: settings.releaseVersion,
-      commit: settings.gitCommit
+      commit: settings.gitCommit,
+      environment: settings.appEnvironment
     });
     return;
   }
@@ -203,6 +424,7 @@ async function handleApi(context) {
       appVersion: settings.appVersion,
       version: settings.releaseVersion,
       commit: settings.gitCommit,
+      environment: settings.appEnvironment,
       dbProvider: settings.dbProvider || 'sqlite',
       uptimeSeconds: Math.floor(process.uptime())
     });
@@ -273,6 +495,20 @@ async function handleApi(context) {
   if (req.method === 'GET' && pathname === '/api/health') {
     const health = buildHealthStatus({ db, sessions, settings, server });
     sendJson(res, 200, { health });
+    return;
+  }
+
+  if (req.method === 'GET' && pathname === '/api/notifications') {
+    sendJson(res, 200, {
+      notifications: buildOperationalNotifications(db, session)
+    });
+    return;
+  }
+
+  if (req.method === 'GET' && pathname === '/api/ai/insights') {
+    sendJson(res, 200, {
+      analysis: buildOperationalAiInsights(db, session)
+    });
     return;
   }
 
@@ -689,6 +925,35 @@ async function handleApi(context) {
     const order = sanitizeOrderColumnOrder(body.order);
     db.setUserPreference(session.user.id, 'orderColumnOrder', JSON.stringify(order));
     sendJson(res, 200, { order });
+    return;
+  }
+
+  const preferenceMatch = pathname.match(/^\/api\/preferences\/([a-zA-Z0-9-]+)$/);
+  if (preferenceMatch && req.method === 'GET') {
+    const key = sanitizePreferenceKey(preferenceMatch[1]);
+    if (!key) {
+      sendJson(res, 404, { error: 'Preferencia nao encontrada.' });
+      return;
+    }
+
+    sendJson(res, 200, {
+      key,
+      value: parseUserPreference(db.getUserPreference(session.user.id, key), key)
+    });
+    return;
+  }
+
+  if (preferenceMatch && req.method === 'PUT') {
+    const key = sanitizePreferenceKey(preferenceMatch[1]);
+    if (!key) {
+      sendJson(res, 404, { error: 'Preferencia nao encontrada.' });
+      return;
+    }
+
+    const body = await readJsonBody(req);
+    const value = sanitizePreferenceValue(key, body.value || {});
+    db.setUserPreference(session.user.id, key, JSON.stringify(value));
+    sendJson(res, 200, { key, value });
     return;
   }
 
@@ -1794,6 +2059,19 @@ async function handleAdminApi({ req, res, requestUrl, db, session, server }) {
     return;
   }
 
+  if (req.method === 'POST' && pathname === '/api/admin/backups/test-restore') {
+    const result = db.testLatestBackupRestore();
+    db.logActivity({
+      actor,
+      action: 'Backup testado',
+      entityType: 'Sistema',
+      entityLabel: result.backup ? result.backup.name : 'Backup',
+      details: result.message || ''
+    });
+    sendJson(res, 200, { result, backups: db.listBackups(), latestBackup: db.latestBackup() });
+    return;
+  }
+
   const backupRestoreMatch = pathname.match(/^\/api\/admin\/backups\/([^/]+)\/restore$/);
   if (backupRestoreMatch && req.method === 'POST') {
     const fileName = decodeURIComponent(backupRestoreMatch[1]);
@@ -2211,6 +2489,7 @@ function buildHealthStatus({ db, sessions, settings, server }) {
   return {
     appName: settings.appName,
     version: settings.appVersion,
+    environment: settings.appEnvironment,
     startedAt: settings.startedAt || '',
     uptimeSeconds: Math.floor(process.uptime()),
     serverOnline: true,
@@ -2421,6 +2700,36 @@ function parseOrderColumnOrder(rawValue) {
 
 function sanitizeOrderColumnOrder(value) {
   return sanitizeUniqueList(value, new Set(ORDER_COLUMN_KEYS));
+}
+
+function sanitizePreferenceKey(value) {
+  const key = String(value || '').trim();
+  return USER_PREFERENCE_KEYS.has(key) ? key : '';
+}
+
+function parseUserPreference(rawValue, key) {
+  if (!rawValue) {
+    return {};
+  }
+
+  try {
+    return sanitizePreferenceValue(key, JSON.parse(rawValue));
+  } catch (error) {
+    return {};
+  }
+}
+
+function sanitizePreferenceValue(key, value) {
+  if (!sanitizePreferenceKey(key) || !value || typeof value !== 'object' || Array.isArray(value)) {
+    return {};
+  }
+
+  const serialized = JSON.stringify(value);
+  if (serialized.length > 20000) {
+    throw new Error('Preferencia muito grande.');
+  }
+
+  return JSON.parse(serialized);
 }
 
 function sanitizeUniqueList(value, allowed) {

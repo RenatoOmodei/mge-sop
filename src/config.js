@@ -11,7 +11,8 @@ function readArg(name) {
 
 module.exports = {
   appName: 'S&OP',
-  appVersion: '2026-07-22-auto-update-render-cleanup-v60',
+  appVersion: '2026-07-22-platform-upgrade-v61',
+  appEnvironment: process.env.APP_ENV || process.env.NODE_ENV || 'local',
   rootDir,
   publicDir: path.join(rootDir, 'public'),
   dataDir,

@@ -8,8 +8,13 @@ Sistema local S&OP para controle de pedidos de venda, com login, servidor HTTP e
 - `src/database.js`: camada de dados SQLite em arquivo local no servidor.
 - `src/postgres-database.js`: camada PostgreSQL para uso multiusuario.
 - `public/`: interface web protegida por login.
+- `.github/workflows/`: validacao e deploy automatico via GitHub Actions.
+- `render.yaml` e `render-homolog.yaml`: Blueprints de producao e homologacao no Render.
+- `frontend-react/`: base paralela para migracao futura para React/TypeScript.
 - `data/erp.sqlite`: banco SQLite criado automaticamente na primeira instalacao.
 - `data/postgresql.env`: conexao PostgreSQL criada pelo script de migracao.
+
+Para configurar pipeline, homologacao e producao, consulte `PIPELINE-AMBIENTES.md`.
 
 ## Instalacao no servidor local
 

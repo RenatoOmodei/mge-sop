@@ -246,6 +246,110 @@ button:disabled {
   color: var(--muted);
 }
 
+.notification-center {
+  position: relative;
+}
+
+.notification-toggle {
+  position: relative;
+}
+
+.notification-badge {
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  color: #ffffff;
+  background: var(--red);
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 18px;
+}
+
+.notification-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 900;
+  width: min(380px, calc(100vw - 32px));
+  overflow: hidden;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+}
+
+.notification-panel-header {
+  display: grid;
+  gap: 3px;
+  padding: 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.notification-panel-header span,
+.notification-item small {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.notification-list {
+  display: grid;
+  max-height: 360px;
+  overflow: auto;
+}
+
+.notification-item {
+  display: grid;
+  grid-template-columns: 8px 1fr auto;
+  gap: 10px;
+  align-items: start;
+  width: 100%;
+  padding: 11px 12px;
+  text-align: left;
+  background: #ffffff;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+}
+
+.notification-item:hover {
+  background: #f8fafc;
+}
+
+.notification-item strong,
+.notification-item em {
+  color: var(--text);
+  font-size: 12px;
+  font-style: normal;
+}
+
+.notification-level {
+  width: 8px;
+  height: 8px;
+  margin-top: 4px;
+  border-radius: 999px;
+  background: var(--primary);
+}
+
+.notification-item.critical .notification-level {
+  background: var(--red);
+}
+
+.notification-item.warning .notification-level {
+  background: var(--amber);
+}
+
+.notification-empty {
+  padding: 14px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .toolbar {
   background: var(--panel);
   border: 1px solid var(--line);
@@ -1930,6 +2034,43 @@ tbody tr:hover {
   padding: 9px 11px;
 }
 
+.ai-insights-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.ai-card-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(150px, 1fr));
+  gap: 10px;
+  padding: 0 12px;
+}
+
+.ai-card {
+  box-shadow: none;
+}
+
+.ai-insight-columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  padding: 0 12px 12px;
+}
+
+.ai-insight-columns section {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.ai-insight-columns h3 {
+  margin: 0;
+  padding: 10px 12px;
+  font-size: 13px;
+  border-bottom: 1px solid var(--line);
+}
+
 .product-forecast-table {
   min-width: 1420px;
 }
@@ -2230,6 +2371,54 @@ tbody tr:hover {
 
 .activity-table {
   min-width: 1100px;
+}
+
+.activity-table tbody tr {
+  border-left: 4px solid transparent;
+}
+
+.activity-table tbody tr:hover {
+  background: #f8fafc;
+  border-left-color: var(--primary);
+}
+
+.activity-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  max-width: 180px;
+  padding: 4px 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.activity-pill.default {
+  color: var(--text);
+  background: #eef2f7;
+}
+
+.activity-pill.success {
+  color: var(--green);
+  background: var(--green-bg);
+}
+
+.activity-pill.flow {
+  color: var(--blue);
+  background: var(--blue-bg);
+}
+
+.activity-pill.system {
+  color: #334155;
+  background: #e2e8f0;
+}
+
+.activity-pill.danger {
+  color: var(--red);
+  background: var(--red-bg);
 }
 
 .billing-screen {
@@ -2908,6 +3097,11 @@ tbody tr:hover {
     padding: 18px;
   }
 
+  .ai-card-grid,
+  .ai-insight-columns {
+    grid-template-columns: 1fr 1fr;
+  }
+
   .toolbar {
     grid-template-columns: 1fr 1fr;
   }
@@ -2991,6 +3185,17 @@ tbody tr:hover {
 
   .dashboard-grid {
     grid-template-columns: 1fr;
+  }
+
+  .ai-card-grid,
+  .ai-insight-columns {
+    grid-template-columns: 1fr;
+    padding-inline: 8px;
+  }
+
+  .notification-panel {
+    left: auto;
+    right: 0;
   }
 
   .release-summary-row {

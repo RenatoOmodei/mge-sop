@@ -1,10 +1,12 @@
 {
   "name": "MGE S&OP",
   "short_name": "S&OP",
+  "id": "/",
   "description": "Sistema S&OP integrado da MGE",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
+  "display_override": ["standalone", "browser"],
   "background_color": "#f4f6f9",
   "theme_color": "#172033",
   "icons": [
@@ -12,7 +14,33 @@
       "src": "/mge-logo.png",
       "sizes": "137x89",
       "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/pwa-icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
       "purpose": "any maskable"
+    },
+    {
+      "src": "/pwa-icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Pedidos de venda",
+      "short_name": "Pedidos",
+      "url": "/?screen=orders",
+      "icons": [{ "src": "/pwa-icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    },
+    {
+      "name": "Dashboard",
+      "short_name": "Dashboard",
+      "url": "/?screen=dashboard",
+      "icons": [{ "src": "/pwa-icon-192.png", "sizes": "192x192", "type": "image/png" }]
     }
   ]
 }

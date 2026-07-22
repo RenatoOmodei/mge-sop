@@ -2,8 +2,11 @@ $ErrorActionPreference = "Stop"
 
 $Root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $OutputDir = Join-Path $Root "instalador-usuarios"
+$PublicDir = Join-Path $Root "public"
 $PngPath = Join-Path $OutputDir "sop-mge-icon.png"
 $IcoPath = Join-Path $OutputDir "sop-mge-icon.ico"
+$PwaIcon192Path = Join-Path $PublicDir "pwa-icon-192.png"
+$PwaIcon512Path = Join-Path $PublicDir "pwa-icon-512.png"
 
 Add-Type -AssemblyName System.Drawing
 
@@ -142,18 +145,23 @@ function Save-Ico {
 }
 
 New-Item -ItemType Directory -Path $OutputDir -Force | Out-Null
+New-Item -ItemType Directory -Path $PublicDir -Force | Out-Null
 
-$sizes = @(256, 128, 64, 48, 32, 16)
+$sizes = @(512, 256, 192, 128, 64, 48, 32, 16)
 $bitmaps = @()
 foreach ($size in $sizes) {
   $bitmaps += New-IconBitmap -Size $size
 }
 
 try {
-  Save-Png -Bitmap $bitmaps[0] -Path $PngPath
+  Save-Png -Bitmap $bitmaps[1] -Path $PngPath
+  Save-Png -Bitmap $bitmaps[0] -Path $PwaIcon512Path
+  Save-Png -Bitmap $bitmaps[2] -Path $PwaIcon192Path
   Save-Ico -Path $IcoPath -Bitmaps $bitmaps
   Write-Host "Icone PNG criado em: $PngPath"
   Write-Host "Icone ICO criado em: $IcoPath"
+  Write-Host "Icone PWA 192 criado em: $PwaIcon192Path"
+  Write-Host "Icone PWA 512 criado em: $PwaIcon512Path"
 } finally {
   foreach ($bitmap in $bitmaps) {
     $bitmap.Dispose()

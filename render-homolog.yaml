@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: mge-sop-api
+    name: mge-sop-api-homolog
     runtime: node
     plan: free
     buildCommand: npm install
@@ -10,16 +10,16 @@ services:
       - key: NODE_VERSION
         value: "22"
       - key: NODE_ENV
-        value: production
+        value: staging
       - key: APP_ENV
-        value: production
+        value: homolog
       - key: DB_PROVIDER
         value: postgres
       - key: POSTGRES_SSL
         value: "false"
       - key: DATABASE_URL
         fromDatabase:
-          name: mge-sop-db
+          name: mge-sop-db-homolog
           property: connectionString
       - key: ADMIN_USER
         value: admin
@@ -27,7 +27,7 @@ services:
         sync: false
 
 databases:
-  - name: mge-sop-db
+  - name: mge-sop-db-homolog
     plan: free
-    databaseName: mge_sop
-    user: mge_sop_user
+    databaseName: mge_sop_homolog
+    user: mge_sop_homolog_user

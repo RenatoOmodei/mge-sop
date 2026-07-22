@@ -1,4 +1,4 @@
-const CACHE_NAME = 'mge-sop-shell-v60';
+const CACHE_NAME = 'mge-sop-shell-v61';
 const APP_SHELL = [
   '/',
   '/index.html',
@@ -7,7 +7,9 @@ const APP_SHELL = [
   '/runtime-config.js',
   '/modules/Romaneiorev09.html',
   '/manifest.webmanifest',
-  '/mge-logo.png'
+  '/mge-logo.png',
+  '/pwa-icon-192.png',
+  '/pwa-icon-512.png'
 ];
 
 self.addEventListener('install', (event) => {

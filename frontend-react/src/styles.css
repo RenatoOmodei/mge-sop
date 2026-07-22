@@ -1,0 +1,63 @@
+:root {
+  color: #172033;
+  background: #f4f6f9;
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+body {
+  margin: 0;
+}
+
+.react-shell {
+  display: grid;
+  gap: 20px;
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 28px;
+}
+
+.react-shell header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.react-shell img {
+  width: 58px;
+  height: 58px;
+  border-radius: 12px;
+}
+
+.react-shell h1,
+.react-shell p {
+  margin: 0;
+}
+
+.status-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.status-grid article {
+  display: grid;
+  gap: 8px;
+  padding: 16px;
+  background: #ffffff;
+  border: 1px solid #d8dee8;
+  border-radius: 8px;
+}
+
+.status-grid span {
+  color: #667085;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.status-grid strong {
+  font-size: 22px;
+}
+
+.error {
+  color: #b42318;
+}
