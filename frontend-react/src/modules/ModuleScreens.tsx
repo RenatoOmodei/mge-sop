@@ -4312,6 +4312,7 @@ export function ApsScreen({ user, realtimeRefreshKey = 0, configFocus }: ModuleP
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [refresh, setRefresh] = useState(0);
+  const [ganttFullscreen, setGanttFullscreen] = useState(false);
 
   useEffect(() => {
     let ignore = false;
@@ -4488,37 +4489,21 @@ export function ApsScreen({ user, realtimeRefreshKey = 0, configFocus }: ModuleP
     }, 'Centro de trabalho salvo no banco.');
   }
 
-  function updateOperator(index: number, patch: Partial<ApsOperator>) {
-    updateConfig((current) => ({
-      ...current,
-      operators: current.operators.map((operator, rowIndex) => (rowIndex === index ? { ...operator, ...patch } : operator))
-    }));
-  }
-
-  function addOperator() {
-    updateConfig((current) => ({
-      ...current,
-      operators: [...current.operators, nextApsOperator(current.operators, current.operations, current.workCenters)]
-    }));
+  function saveOperator(index: number | null, operator: ApsOperator) {
+    commitConfig((current) => {
+      const cleanOperator = normalizeApsOperator(operator);
+      const operators = index !== null && current.operators[index]
+        ? current.operators.map((row, rowIndex) => (rowIndex === index ? cleanOperator : row))
+        : [...current.operators, cleanOperator];
+      return { ...current, operators };
+    }, 'Operador APS salvo no banco.');
   }
 
   function removeOperator(code: string) {
-    updateConfig((current) => ({
+    commitConfig((current) => ({
       ...current,
       operators: current.operators.filter((operator) => operator.code !== code)
-    }));
-  }
-
-  function toggleOperatorLink(index: number, field: 'enabledOperations' | 'enabledCenters', code: string) {
-    const cleanCode = field === 'enabledCenters' ? code.toUpperCase() : code;
-    const operator = config.operators[index];
-    const values = new Set(operator?.[field] || []);
-    if (values.has(cleanCode)) {
-      values.delete(cleanCode);
-    } else {
-      values.add(cleanCode);
-    }
-    updateOperator(index, { [field]: Array.from(values) } as Partial<ApsOperator>);
+    }), 'Operador APS excluido do banco.');
   }
 
   async function saveConfig() {
@@ -4569,10 +4554,17 @@ export function ApsScreen({ user, realtimeRefreshKey = 0, configFocus }: ModuleP
       </section>}
 
       {!configOnly && <div className="dashboard-chart-grid">
-        <section className="module-panel aps-gantt-panel-react">
+        <section className={`module-panel aps-gantt-panel-react ${ganttFullscreen ? 'is-fullscreen' : ''}`}>
           <div className="panel-title">
-            <h3>Gantt APS</h3>
-            <span>{formatLocalDateTime(schedule.rangeStart)} ate {formatLocalDateTime(schedule.rangeEnd)}</span>
+            <div>
+              <h3>Gantt APS</h3>
+              <span>{formatLocalDateTime(schedule.rangeStart)} ate {formatLocalDateTime(schedule.rangeEnd)}</span>
+            </div>
+            <div className="panel-actions">
+              <button className="btn" type="button" onClick={() => setGanttFullscreen((value) => !value)}>
+                <IconText name="expand">{ganttFullscreen ? 'Reduzir' : 'Tela cheia'}</IconText>
+              </button>
+            </div>
           </div>
           <div className="gantt-header-line">
             <span>{schedule.metrics.totalOperations} operacoes</span>
@@ -4724,9 +4716,7 @@ export function ApsScreen({ user, realtimeRefreshKey = 0, configFocus }: ModuleP
             operations={config.operations}
             centers={config.workCenters}
             canEdit={canEditAps}
-            onUpdate={updateOperator}
-            onToggleLink={toggleOperatorLink}
-            onAdd={addOperator}
+            onSave={saveOperator}
             onRemove={removeOperator}
           />
         )}
@@ -5025,6 +5015,22 @@ function ApsOperationsEditor({
     setDraft((current) => current ? normalizeApsOperation({ ...current, ...patch }) : current);
   }
 
+  function updateAllowedCentersText(value: string) {
+    updateDraft({ allowedCenters: stringList(value).map((center) => center.toUpperCase()) });
+  }
+
+  function toggleDraftCenter(code: string) {
+    if (!draft) return;
+    const cleanCode = code.toUpperCase();
+    const values = new Set(draft.allowedCenters);
+    if (values.has(cleanCode)) {
+      values.delete(cleanCode);
+    } else {
+      values.add(cleanCode);
+    }
+    updateDraft({ allowedCenters: Array.from(values) });
+  }
+
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!draft) return;
@@ -5103,16 +5109,31 @@ function ApsOperationsEditor({
             </label>
             <label className="field aps-operation-span-2">
               <span>Centros permitidos</span>
-              <select
-                className="input aps-multi-select"
-                multiple
-                value={draft.allowedCenters}
+              <input
+                className="input"
+                value={draft.allowedCenters.join(', ')}
                 disabled={!canEdit}
-                onChange={(event) => updateDraft({ allowedCenters: selectedOptionValues(event.currentTarget).map((value) => value.toUpperCase()) })}
-              >
-                {centers.map((center) => <option key={center.code} value={center.code}>{center.code} - {center.description}</option>)}
-              </select>
+                onChange={(event) => updateAllowedCentersText(event.target.value)}
+                placeholder="Ex.: MONT, TESTE, EMB"
+              />
             </label>
+            <div className="field aps-operation-span-2">
+              <span>Centros cadastrados</span>
+              <div className="checkbox-grid aps-center-link-grid">
+                {centers.map((center) => (
+                  <label key={center.code}>
+                    <input
+                      type="checkbox"
+                      checked={draft.allowedCenters.includes(center.code)}
+                      disabled={!canEdit}
+                      onChange={() => toggleDraftCenter(center.code)}
+                    />
+                    <span>{center.code} - {center.description}</span>
+                  </label>
+                ))}
+                {!centers.length && <span className="empty-inline">Nenhum centro cadastrado.</span>}
+              </div>
+            </div>
           </div>
           <div className="admin-form-actions">
             <button className="btn primary" type="submit" disabled={!canEdit}><IconText name="save">Salvar operacao</IconText></button>
@@ -5529,96 +5550,213 @@ function ApsOperatorsEditor({
   operations,
   centers,
   canEdit,
-  onUpdate,
-  onToggleLink,
-  onAdd,
+  onSave,
   onRemove
 }: {
   operators: ApsOperator[];
   operations: ApsOperation[];
   centers: ApsWorkCenter[];
   canEdit: boolean;
-  onUpdate: (index: number, patch: Partial<ApsOperator>) => void;
-  onToggleLink: (index: number, field: 'enabledOperations' | 'enabledCenters', code: string) => void;
-  onAdd: () => void;
+  onSave: (index: number | null, operator: ApsOperator) => void;
   onRemove: (code: string) => void;
 }) {
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const [draft, setDraft] = useState<ApsOperator | null>(null);
+
+  function startNew() {
+    setEditingIndex(null);
+    setDraft(nextApsOperator(operators, operations, centers));
+  }
+
+  function startEdit(index: number) {
+    const operator = operators[index];
+    setEditingIndex(index);
+    setDraft({
+      ...operator,
+      enabledOperations: [...operator.enabledOperations],
+      enabledCenters: [...operator.enabledCenters]
+    });
+  }
+
+  function updateDraft(patch: Partial<ApsOperator>) {
+    setDraft((current) => current ? normalizeApsOperator({ ...current, ...patch }) : current);
+  }
+
+  function toggleDraftLink(field: 'enabledOperations' | 'enabledCenters', code: string) {
+    if (!draft) return;
+    const cleanCode = field === 'enabledCenters' ? code.toUpperCase() : code;
+    const values = new Set(draft[field]);
+    if (values.has(cleanCode)) {
+      values.delete(cleanCode);
+    } else {
+      values.add(cleanCode);
+    }
+    updateDraft({ [field]: Array.from(values) } as Partial<ApsOperator>);
+  }
+
+  function updateDraftLinksFromText(field: 'enabledOperations' | 'enabledCenters', value: string) {
+    const values = stringList(value).map((item) => field === 'enabledCenters' ? item.toUpperCase() : item);
+    updateDraft({ [field]: values } as Partial<ApsOperator>);
+  }
+
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!draft) return;
+    onSave(editingIndex, draft);
+    setEditingIndex(null);
+    setDraft(null);
+  }
+
   return (
     <>
-      {canEdit && <button className="btn module-action" type="button" onClick={onAdd}>Adicionar operador</button>}
-      <div className="aps-operator-cards">
-        {operators.map((operator, index) => (
-          <article className="module-panel aps-operator-card" key={`${operator.code}-${index}`}>
-            <div className="panel-title">
-              <h3>{operator.code || `Operador ${index + 1}`}</h3>
-              {canEdit && <button className="btn" type="button" onClick={() => onRemove(operator.code)}>Excluir</button>}
-            </div>
-            <div className="aps-operator-form-grid">
-              <label className="field">
-                <span>Codigo</span>
-                <input className="input" value={operator.code} disabled={!canEdit} onChange={(event) => onUpdate(index, { code: event.target.value.toUpperCase() })} />
-              </label>
-              <label className="field">
-                <span>Nome</span>
-                <input className="input" value={operator.name} disabled={!canEdit} onChange={(event) => onUpdate(index, { name: event.target.value })} />
-              </label>
-              <label className="field">
-                <span>Turno</span>
-                <input className="input" value={operator.shift} disabled={!canEdit} onChange={(event) => onUpdate(index, { shift: event.target.value })} />
-              </label>
-              <label className="field">
-                <span>Jornada h</span>
-                <input className="input" type="number" min="1" max="24" step="0.5" value={operator.journeyHours} disabled={!canEdit} onChange={(event) => onUpdate(index, { journeyHours: toNumber(event.target.value, 8) })} />
-              </label>
-              <label className="field">
-                <span>Eficiencia</span>
-                <input className="input" type="number" min="0.1" max="3" step="0.05" value={operator.efficiency} disabled={!canEdit} onChange={(event) => onUpdate(index, { efficiency: toNumber(event.target.value, 1) })} />
-              </label>
-              <label className="field">
-                <span>Habilidade</span>
-                <input className="input" value={operator.skill} disabled={!canEdit} onChange={(event) => onUpdate(index, { skill: event.target.value })} />
-              </label>
-              <label className="field">
-                <span>Custo hora</span>
-                <input className="input" type="number" min="0" step="0.01" value={operator.hourlyCost} disabled={!canEdit} onChange={(event) => onUpdate(index, { hourlyCost: toNumber(event.target.value, 0) })} />
-              </label>
-            </div>
-            <div className="aps-link-grid">
-              <div>
-                <strong>Operacoes qualificadas</strong>
-                <div className="checkbox-grid">
-                  {operations.map((operation) => (
-                    <label key={operation.code}>
-                      <input
-                        type="checkbox"
-                        checked={operator.enabledOperations.includes(operation.code)}
-                        disabled={!canEdit}
-                        onChange={() => onToggleLink(index, 'enabledOperations', operation.code)}
-                      />
-                      <span>{operation.description}</span>
-                    </label>
-                  ))}
-                </div>
+      {canEdit && (
+        <div className="module-action-row">
+          <button className="btn primary" type="button" onClick={startNew}><IconText name="plus">Adicionar operador</IconText></button>
+        </div>
+      )}
+      {draft && (
+        <form className="aps-operator-form" onSubmit={submit}>
+          <div className="panel-title">
+            <h3>{editingIndex === null ? 'Adicionar operador' : 'Editar operador'}</h3>
+            <span>{draft.code || 'Informe o codigo do operador'}</span>
+          </div>
+          <div className="aps-operator-form-grid">
+            <label className="field">
+              <span>Codigo</span>
+              <input className="input" value={draft.code} disabled={!canEdit} onChange={(event) => updateDraft({ code: event.target.value.toUpperCase() })} required />
+            </label>
+            <label className="field">
+              <span>Nome</span>
+              <input className="input" value={draft.name} disabled={!canEdit} onChange={(event) => updateDraft({ name: event.target.value })} required />
+            </label>
+            <label className="field">
+              <span>Turno</span>
+              <input className="input" value={draft.shift} disabled={!canEdit} onChange={(event) => updateDraft({ shift: event.target.value })} />
+            </label>
+            <label className="field">
+              <span>Jornada h</span>
+              <input className="input" type="number" min="1" max="24" step="0.5" value={draft.journeyHours} disabled={!canEdit} onChange={(event) => updateDraft({ journeyHours: toNumber(event.target.value, 8) })} />
+            </label>
+            <label className="field">
+              <span>Eficiencia</span>
+              <input className="input" type="number" min="0.1" max="3" step="0.05" value={draft.efficiency} disabled={!canEdit} onChange={(event) => updateDraft({ efficiency: toNumber(event.target.value, 1) })} />
+            </label>
+            <label className="field">
+              <span>Custo hora</span>
+              <input className="input" type="number" min="0" step="0.01" value={draft.hourlyCost} disabled={!canEdit} onChange={(event) => updateDraft({ hourlyCost: toNumber(event.target.value, 0) })} />
+            </label>
+            <label className="field aps-operation-span-2">
+              <span>Habilidade</span>
+              <input className="input" value={draft.skill} disabled={!canEdit} onChange={(event) => updateDraft({ skill: event.target.value })} />
+            </label>
+            <label className="field aps-operation-span-2">
+              <span>Operacoes qualificadas</span>
+              <input
+                className="input"
+                value={draft.enabledOperations.join(', ')}
+                disabled={!canEdit}
+                onChange={(event) => updateDraftLinksFromText('enabledOperations', event.target.value)}
+                placeholder="Ex.: lm, serpentina, montagem"
+              />
+            </label>
+            <label className="field aps-operation-span-2">
+              <span>Centros habilitados</span>
+              <input
+                className="input"
+                value={draft.enabledCenters.join(', ')}
+                disabled={!canEdit}
+                onChange={(event) => updateDraftLinksFromText('enabledCenters', event.target.value)}
+                placeholder="Ex.: MONT, TESTE"
+              />
+            </label>
+          </div>
+          <div className="aps-link-grid">
+            <div>
+              <strong>Operacoes qualificadas</strong>
+              <div className="checkbox-grid">
+                {operations.map((operation) => (
+                  <label key={operation.code}>
+                    <input
+                      type="checkbox"
+                      checked={draft.enabledOperations.includes(operation.code)}
+                      disabled={!canEdit}
+                      onChange={() => toggleDraftLink('enabledOperations', operation.code)}
+                    />
+                    <span>{operation.description}</span>
+                  </label>
+                ))}
+                {!operations.length && <span className="empty-inline">Nenhuma operacao cadastrada.</span>}
               </div>
-              <div>
-                <strong>Centros habilitados</strong>
-                <div className="checkbox-grid">
-                  {centers.map((center) => (
-                    <label key={center.code}>
-                      <input
-                        type="checkbox"
-                        checked={operator.enabledCenters.includes(center.code)}
-                        disabled={!canEdit}
-                        onChange={() => onToggleLink(index, 'enabledCenters', center.code)}
-                      />
-                      <span>{center.code} - {center.description}</span>
-                    </label>
-                  ))}
-                </div>
+            </div>
+            <div>
+              <strong>Centros habilitados</strong>
+              <div className="checkbox-grid">
+                {centers.map((center) => (
+                  <label key={center.code}>
+                    <input
+                      type="checkbox"
+                      checked={draft.enabledCenters.includes(center.code)}
+                      disabled={!canEdit}
+                      onChange={() => toggleDraftLink('enabledCenters', center.code)}
+                    />
+                    <span>{center.code} - {center.description}</span>
+                  </label>
+                ))}
+                {!centers.length && <span className="empty-inline">Nenhum centro cadastrado.</span>}
               </div>
             </div>
-          </article>
-        ))}
+          </div>
+          <div className="admin-form-actions">
+            <button className="btn primary" type="submit" disabled={!canEdit}><IconText name="save">Salvar operador</IconText></button>
+            <button className="btn" type="button" onClick={() => { setDraft(null); setEditingIndex(null); }}><IconText name="close">Cancelar</IconText></button>
+          </div>
+        </form>
+      )}
+      <div className="generic-table-wrap aps-config-table-wrap">
+        <table className="generic-table aps-config-table">
+          <thead>
+            <tr>
+              <th>Codigo</th>
+              <th>Nome</th>
+              <th>Turno</th>
+              <th>Jornada h</th>
+              <th>Eficiencia</th>
+              <th>Habilidade</th>
+              <th>Operacoes</th>
+              <th>Centros</th>
+              <th>Custo hora</th>
+              {canEdit && <th>Acoes</th>}
+            </tr>
+          </thead>
+          <tbody>
+            {operators.map((operator, index) => (
+              <tr key={`${operator.code}-${index}`}>
+                <td><strong>{operator.code}</strong></td>
+                <td>{operator.name}</td>
+                <td>{operator.shift}</td>
+                <td>{formatNumber(operator.journeyHours)}</td>
+                <td>{formatNumber(operator.efficiency)}</td>
+                <td>{operator.skill || '-'}</td>
+                <td>{operator.enabledOperations.map((code) => apsOperationLabel(code, operations)).join(', ') || 'Todas'}</td>
+                <td>{operator.enabledCenters.join(', ') || 'Todos'}</td>
+                <td>{formatNumber(operator.hourlyCost)}</td>
+                {canEdit && (
+                  <td className="row-actions-cell">
+                    <div className="table-actions">
+                      <button className="btn" type="button" onClick={() => startEdit(index)}><IconText name="edit">Editar</IconText></button>
+                      <button className="btn" type="button" onClick={() => onRemove(operator.code)}><IconText name="trash">Excluir</IconText></button>
+                    </div>
+                  </td>
+                )}
+              </tr>
+            ))}
+            {!operators.length && (
+              <tr>
+                <td className="empty" colSpan={canEdit ? 10 : 9}>Nenhum operador cadastrado.</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
       </div>
     </>
   );

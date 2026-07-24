@@ -16,7 +16,8 @@ export type IconName =
   | 'truck'
   | 'printer'
   | 'upload'
-  | 'history';
+  | 'history'
+  | 'expand';
 
 const iconPaths: Record<IconName, string> = {
   plus: 'M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6V5Z',
@@ -36,7 +37,8 @@ const iconPaths: Record<IconName, string> = {
   truck: 'M3 6h11v8h2.2L18 10h3v7h-2a2.5 2.5 0 0 1-5 0H9a2.5 2.5 0 0 1-5 0H3V6Zm2 2v7.2A2.5 2.5 0 0 1 8.8 16H14V8H5Zm11 4v4h.2a2.5 2.5 0 0 1 1.6-.8H19v-3.2h-1.7L16 12Z',
   printer: 'M7 4h10v5H7V4Zm-2 7h14a2 2 0 0 1 2 2v5h-4v3H7v-3H3v-5a2 2 0 0 1 2-2Zm4 5v3h6v-3H9Zm8-2h2v-1h-2v1Z',
   upload: 'M11 20v-8L8 15l-1.4-1.4L12 8.2l5.4 5.4L16 15l-3-3v8h-2ZM5 4h14v2H5V4Z',
-  history: 'M12 5a7 7 0 1 1-6.3 4H3l3-3 3 3H7.9A5 5 0 1 0 12 7v4l3 2-1 1.7-4-2.7V5h2Z'
+  history: 'M12 5a7 7 0 1 1-6.3 4H3l3-3 3 3H7.9A5 5 0 1 0 12 7v4l3 2-1 1.7-4-2.7V5h2Z',
+  expand: 'M5 5h6v2H8.4l3.3 3.3-1.4 1.4L7 8.4V11H5V5Zm8 0h6v6h-2V8.4l-3.3 3.3-1.4-1.4L15.6 7H13V5ZM7 15.6l3.3-3.3 1.4 1.4L8.4 17H11v2H5v-6h2v2.6Zm6.7-3.3 3.3 3.3V13h2v6h-6v-2h2.6l-3.3-3.3 1.4-1.4Z'
 };
 
 export function Icon({ name }: { name: IconName }) {
