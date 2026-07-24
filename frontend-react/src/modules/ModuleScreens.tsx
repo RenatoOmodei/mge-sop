@@ -3611,6 +3611,7 @@ type PurchasePendingState = {
   sourceName: string;
   importedAt: string;
   search: string;
+  buyerFilter: string;
 };
 
 export function PurchasePendingScreen({ user, realtimeRefreshKey = 0 }: ModuleProps) {
@@ -3646,9 +3647,12 @@ export function PurchasePendingScreen({ user, realtimeRefreshKey = 0 }: ModulePr
     };
   }, [realtimeRefreshKey]);
 
-  function persistSearch(value: string) {
-    setState((current) => ({ ...current, search: value }));
-    writeLocalPreference(purchasePendingStorageKey(user.id), { search: value });
+  function persistUiState(patch: Partial<Pick<PurchasePendingState, 'search' | 'buyerFilter'>>) {
+    setState((current) => {
+      const next = { ...current, ...patch };
+      writeLocalPreference(purchasePendingStorageKey(user.id), { search: next.search, buyerFilter: next.buyerFilter });
+      return next;
+    });
   }
 
   function applyServerRows(rows: Row[]) {
@@ -3686,7 +3690,11 @@ export function PurchasePendingScreen({ user, realtimeRefreshKey = 0 }: ModulePr
   }
 
   function updateSearch(value: string) {
-    persistSearch(value);
+    persistUiState({ search: value });
+  }
+
+  function updateBuyerFilter(value: string) {
+    persistUiState({ buyerFilter: value });
   }
 
   async function clearRows() {
@@ -3733,7 +3741,9 @@ export function PurchasePendingScreen({ user, realtimeRefreshKey = 0 }: ModulePr
     });
   }
 
-  const filteredRows = useMemo(() => filterRows(state.rows, state.search), [state.rows, state.search]);
+  const buyerOptions = useMemo(() => purchasePendingBuyerOptions(state.rows), [state.rows]);
+  const filteredRows = useMemo(() => filterPurchasePendingRows(state.rows, state.search, state.buyerFilter), [state.rows, state.search, state.buyerFilter]);
+  const buyerDelayRows = useMemo(() => purchasePendingBuyerDelayRows(state.rows), [state.rows]);
   const metrics = purchasePendingMetrics(state.rows);
   const columns = purchasePendingColumns(state.rows);
 
@@ -3751,6 +3761,13 @@ export function PurchasePendingScreen({ user, realtimeRefreshKey = 0 }: ModulePr
       <section className="module-panel purchase-pending-panel">
         <div className="module-toolbar">
           <ToolbarSearch value={state.search} onChange={updateSearch} placeholder="Filtrar fornecedor, codigo, pedido ou status" />
+          <label className="field module-search compact-field">
+            <span>Comprador</span>
+            <select className="input" value={state.buyerFilter} onChange={(event) => updateBuyerFilter(event.target.value)} disabled={!buyerOptions.length}>
+              <option value="">Todos</option>
+              {buyerOptions.map((buyer) => <option key={buyer} value={buyer}>{buyer}</option>)}
+            </select>
+          </label>
           {editable && (
             <label className="btn file-action">
               <IconText name="upload">Importar CSV/TSV</IconText>
@@ -3765,6 +3782,20 @@ export function PurchasePendingScreen({ user, realtimeRefreshKey = 0 }: ModulePr
           <span>Atualizado em: <strong>{formatDateTime(state.importedAt)}</strong></span>
           <span>Exibindo: <strong>{formatInteger(filteredRows.length)}</strong></span>
         </div>
+      </section>
+
+      <section className="module-panel purchase-buyer-delay-panel">
+        <div className="panel-title">
+          <h3>Atraso por comprador</h3>
+          <span>{buyerDelayRows.length} comprador(es)</span>
+        </div>
+        <DataTable rows={buyerDelayRows} columns={[
+          { key: 'buyer', label: 'Comprador' },
+          { key: 'pending', label: 'Pendentes', format: formatInteger },
+          { key: 'overdue', label: 'Atrasados', format: formatInteger },
+          { key: 'averageDelayDays', label: 'Media atraso dias', format: formatNumber },
+          { key: 'maxDelayDays', label: 'Maior atraso dias', format: formatInteger }
+        ]} rowClass={(row) => Number(row.averageDelayDays || 0) > 0 ? 'row-warning' : ''} />
       </section>
 
       {resolvingRow && (
@@ -7973,7 +8004,8 @@ function loadPurchasePendingState(userId: string): PurchasePendingState {
     rows: [],
     sourceName: '',
     importedAt: '',
-    search: String(rawState.search || '')
+    search: String(rawState.search || ''),
+    buyerFilter: String(rawState.buyerFilter || '')
   };
 }
 
@@ -8113,12 +8145,65 @@ function purchasePendingMetrics(rows: Row[]) {
   };
 }
 
+function filterPurchasePendingRows(rows: Row[], search: string, buyerFilter: string) {
+  const buyerKey = purchasePendingBuyerKey(rows);
+  const filteredByBuyer = buyerFilter && buyerKey
+    ? rows.filter((row) => String(row[buyerKey] || '').trim() === buyerFilter)
+    : rows;
+  return filterRows(filteredByBuyer, search);
+}
+
+function purchasePendingBuyerOptions(rows: Row[]) {
+  const buyerKey = purchasePendingBuyerKey(rows);
+  if (!buyerKey) return [];
+  return Array.from(new Set(
+    rows
+      .map((row) => String(row[buyerKey] || '').trim())
+      .filter(Boolean)
+  )).sort((left, right) => left.localeCompare(right, 'pt-BR'));
+}
+
+function purchasePendingBuyerDelayRows(rows: Row[]): Row[] {
+  const buyerKey = purchasePendingBuyerKey(rows);
+  if (!buyerKey) return [];
+  const buckets = new Map<string, { buyer: string; pending: number; overdue: number; totalDelayDays: number; maxDelayDays: number }>();
+
+  rows
+    .filter((row) => String(row.itemStatus || 'pending') !== 'resolved')
+    .forEach((row) => {
+      const buyer = String(row[buyerKey] || '').trim() || 'Sem comprador';
+      const delayDays = purchasePendingDelayDays(row);
+      const bucket = buckets.get(buyer) || { buyer, pending: 0, overdue: 0, totalDelayDays: 0, maxDelayDays: 0 };
+      bucket.pending += 1;
+      bucket.totalDelayDays += delayDays;
+      if (delayDays > 0) bucket.overdue += 1;
+      bucket.maxDelayDays = Math.max(bucket.maxDelayDays, delayDays);
+      buckets.set(buyer, bucket);
+    });
+
+  return Array.from(buckets.values())
+    .map((bucket) => ({
+      ...bucket,
+      averageDelayDays: bucket.pending ? bucket.totalDelayDays / bucket.pending : 0
+    }))
+    .sort((left, right) => Number(right.averageDelayDays) - Number(left.averageDelayDays) || String(left.buyer).localeCompare(String(right.buyer), 'pt-BR'));
+}
+
+function purchasePendingBuyerKey(rows: Row[]) {
+  return findPurchasePendingKey(rows, ['comprador', 'buyer', 'responsavel compras', 'responsável compras', 'responsavel pela compra']);
+}
+
 function purchasePendingIsOverdue(row: Row) {
   if (String(row.itemStatus || 'pending') === 'resolved') return false;
-  const today = dateInputValue(new Date());
+  return purchasePendingDelayDays(row) > 0;
+}
+
+function purchasePendingDelayDays(row: Row) {
+  if (String(row.itemStatus || 'pending') === 'resolved') return 0;
   const deliveryKey = purchasePendingExpectedDeliveryKey(row);
-  const text = deliveryKey ? normalizePurchasePendingDate(row[deliveryKey]) : '';
-  return Boolean(text && text < today);
+  const deliveryDate = deliveryKey ? normalizePurchasePendingDate(row[deliveryKey]) : '';
+  if (!deliveryDate) return 0;
+  return diffDays(deliveryDate, dateInputValue(new Date())) || 0;
 }
 
 function normalizePurchasePendingDate(value: unknown) {
