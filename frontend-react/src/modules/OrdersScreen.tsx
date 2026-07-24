@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, ChangeEvent, FormEvent } from 'react';
 import { api } from '../api/client';
 import type { CurrentUser } from '../App';
+import { DocumentPreviewDialog, downloadPreviewDocument, type PreviewDocument } from '../components/DocumentPreviewDialog';
 import { IconText } from '../components/Icon';
 
 type OrderColumnKey =
@@ -1774,6 +1775,7 @@ function DimensionsDialog({
 
 function DocumentsDialog({ order, canEditOrders, onClose, onChanged }: { order: SalesOrder; canEditOrders: boolean; onClose: () => void; onChanged: () => void }) {
   const [documents, setDocuments] = useState<OrderPhoto[]>([]);
+  const [previewDocument, setPreviewDocument] = useState<PreviewDocument | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
@@ -1837,46 +1839,55 @@ function DocumentsDialog({ order, canEditOrders, onClose, onChanged }: { order: 
   }
 
   return (
-    <div className="dialog-backdrop open" role="dialog" aria-modal="true" onMouseDown={(event) => {
-      if (event.target === event.currentTarget) onClose();
-    }}>
-      <section className="dialog documents-dialog">
-        <div className="dialog-header">
-          <div>
-            <h2>Documentos</h2>
-            <span className="order-summary-subtitle">{order.orderNumber} | {order.customer}</span>
+    <>
+      <div className="dialog-backdrop open" role="dialog" aria-modal="true" onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}>
+        <section className="dialog documents-dialog">
+          <div className="dialog-header">
+            <div>
+              <h2>Documentos</h2>
+              <span className="order-summary-subtitle">{order.orderNumber} | {order.customer}</span>
+            </div>
+            <button className="icon-button" type="button" aria-label="Fechar" onClick={onClose}>x</button>
           </div>
-          <button className="icon-button" type="button" aria-label="Fechar" onClick={onClose}>x</button>
-        </div>
-        <div className="dialog-body">
-          {canEditOrders && (
-            <label className="field">
-              <span>Anexar documento</span>
-              <input className="input" type="file" onChange={addDocument} disabled={busy === 'upload'} />
-            </label>
-          )}
-          {error && <p className="error">{error}</p>}
-          <div className="document-list">
-            {loading && <p className="muted-text">Carregando documentos...</p>}
-            {!loading && !documents.length && <p className="muted-text">Nenhum documento anexado.</p>}
-            {documents.map((document) => (
-              <article key={document.id}>
-                <div>
-                  <strong>{document.fileName}</strong>
-                  <span>{formatDateTime(document.createdAt)} | {document.mimeType}</span>
-                </div>
-                <a className="btn" href={document.dataUrl} download={document.fileName}>Baixar</a>
-                <a className="btn" href={document.dataUrl} target="_blank" rel="noreferrer">Abrir</a>
-                {canEditOrders && <button className="btn" type="button" disabled={busy === document.id} onClick={() => deleteDocument(document.id)}><IconText name="trash">Excluir</IconText></button>}
-              </article>
-            ))}
+          <div className="dialog-body">
+            {canEditOrders && (
+              <label className="field">
+                <span>Anexar documento</span>
+                <input className="input" type="file" onChange={addDocument} disabled={busy === 'upload'} />
+              </label>
+            )}
+            {error && <p className="error">{error}</p>}
+            <div className="document-list">
+              {loading && <p className="muted-text">Carregando documentos...</p>}
+              {!loading && !documents.length && <p className="muted-text">Nenhum documento anexado.</p>}
+              {documents.map((attachedDocument) => (
+                <article key={attachedDocument.id}>
+                  <div>
+                    <strong>{attachedDocument.fileName}</strong>
+                    <span>{formatDateTime(attachedDocument.createdAt)} | {attachedDocument.mimeType}</span>
+                  </div>
+                  <button className="btn" type="button" onClick={() => setPreviewDocument(attachedDocument)}><IconText name="eye">Visualizar</IconText></button>
+                  <button className="btn" type="button" onClick={() => downloadPreviewDocument(attachedDocument)}><IconText name="download">Baixar</IconText></button>
+                  {canEditOrders && <button className="btn" type="button" disabled={busy === attachedDocument.id} onClick={() => deleteDocument(attachedDocument.id)}><IconText name="trash">Excluir</IconText></button>}
+                </article>
+              ))}
+            </div>
           </div>
-        </div>
-        <div className="dialog-actions">
-          <button className="btn" type="button" onClick={onClose}><IconText name="close">Fechar</IconText></button>
-        </div>
-      </section>
-    </div>
+          <div className="dialog-actions">
+            <button className="btn" type="button" onClick={onClose}><IconText name="close">Fechar</IconText></button>
+          </div>
+        </section>
+      </div>
+      {previewDocument && (
+        <DocumentPreviewDialog
+          document={previewDocument}
+          title="Documento do pedido"
+          onClose={() => setPreviewDocument(null)}
+        />
+      )}
+    </>
   );
 }
 

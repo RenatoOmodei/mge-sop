@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ChangeEvent, FormEvent, ReactNode } from 'react';
 import { api } from '../api/client';
 import type { CurrentUser, TabKey, UserRole } from '../App';
+import { DocumentPreviewDialog, downloadPreviewDocument, type PreviewDocument } from '../components/DocumentPreviewDialog';
 import { IconText } from '../components/Icon';
 
 type Row = Record<string, unknown>;
@@ -2338,6 +2339,7 @@ export function BillingScreen({ user, realtimeRefreshKey = 0 }: ModuleProps) {
   const [historyFilters, setHistoryFilters] = useState<BillingHistoryFilters>(() => loadBillingHistoryFilters(user.id));
   const [collapsedHistory, setCollapsedHistory] = useState(true);
   const [selectedBilling, setSelectedBilling] = useState<{ item: Row; mode: BillingDialogMode } | null>(null);
+  const [previewDocument, setPreviewDocument] = useState<PreviewDocument | null>(null);
   const [preferencesReady, setPreferencesReady] = useState(false);
   const [busy, setBusy] = useState(false);
   const [dialogError, setDialogError] = useState('');
@@ -2457,7 +2459,7 @@ export function BillingScreen({ user, realtimeRefreshKey = 0 }: ModuleProps) {
     await executeBillingDialogAction(async () => {
       const { document } = await api<{ document: InvoiceDocumentInput }>(`${billingItemApiBase(item)}/invoice-document`);
       if (openInBrowser) {
-        openInvoiceDocument(document);
+        setPreviewDocument(document);
       } else {
         downloadDataUrl(document.dataUrl, document.fileName || 'nota-fiscal');
       }
@@ -2577,6 +2579,14 @@ export function BillingScreen({ user, realtimeRefreshKey = 0 }: ModuleProps) {
           onSaveDimensions={saveBillingDimensions}
           onMarkInvoiced={markInvoiced}
           onDownloadInvoice={downloadInvoice}
+          onPreviewDocument={setPreviewDocument}
+        />
+      )}
+      {previewDocument && (
+        <DocumentPreviewDialog
+          document={previewDocument}
+          title="Documento fiscal"
+          onClose={() => setPreviewDocument(null)}
         />
       )}
     </ModuleFrame>
@@ -2593,7 +2603,8 @@ function BillingDialog({
   onSaveInfo,
   onSaveDimensions,
   onMarkInvoiced,
-  onDownloadInvoice
+  onDownloadInvoice,
+  onPreviewDocument
 }: {
   item: Row;
   mode: BillingDialogMode;
@@ -2605,6 +2616,7 @@ function BillingDialog({
   onSaveDimensions: (item: Row, payload: Partial<BillingFormState>) => Promise<void>;
   onMarkInvoiced: (item: Row, payload: Partial<BillingFormState> & { invoiceDocument?: InvoiceDocumentInput }) => Promise<void>;
   onDownloadInvoice: (item: Row, openInBrowser?: boolean) => Promise<void>;
+  onPreviewDocument: (document: PreviewDocument) => void;
 }) {
   const [form, setForm] = useState<BillingFormState>(() => billingFormFromRow(item));
   const [invoiceDocument, setInvoiceDocument] = useState<InvoiceDocumentInput | null>(null);
@@ -2715,13 +2727,13 @@ function BillingDialog({
             <div className="table-actions">
               {invoiceDocument && (
                 <>
-                  <button className="btn" type="button" onClick={() => openInvoiceDocument(invoiceDocument)}><IconText name="eye">Abrir selecionado</IconText></button>
-                  <button className="btn" type="button" onClick={() => downloadDataUrl(invoiceDocument.dataUrl, invoiceDocument.fileName)}><IconText name="download">Baixar selecionado</IconText></button>
+                  <button className="btn" type="button" onClick={() => onPreviewDocument(invoiceDocument)}><IconText name="eye">Visualizar selecionado</IconText></button>
+                  <button className="btn" type="button" onClick={() => downloadPreviewDocument(invoiceDocument)}><IconText name="download">Baixar selecionado</IconText></button>
                 </>
               )}
               {hasBillingDocument(item) && (
                 <>
-                  <button className="btn" type="button" disabled={busy} onClick={() => onDownloadInvoice(item, true)}><IconText name="eye">Abrir NF</IconText></button>
+                  <button className="btn" type="button" disabled={busy} onClick={() => onDownloadInvoice(item, true)}><IconText name="eye">Visualizar NF</IconText></button>
                   <button className="btn" type="button" disabled={busy} onClick={() => onDownloadInvoice(item, false)}><IconText name="download">Baixar NF</IconText></button>
                 </>
               )}
@@ -2769,6 +2781,7 @@ export function LoadingScreen({ user, realtimeRefreshKey = 0 }: ModuleProps) {
   const [orders, setOrders] = useState<Row[]>([]);
   const [filters, setFilters] = useState<LoadingTableState>(() => loadLoadingTableState(user.id));
   const [selected, setSelected] = useState<Row | null>(null);
+  const [previewDocument, setPreviewDocument] = useState<PreviewDocument | null>(null);
   const [preferencesReady, setPreferencesReady] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -2835,7 +2848,7 @@ export function LoadingScreen({ user, realtimeRefreshKey = 0 }: ModuleProps) {
     await runAction(setError, async () => {
       const { document } = await api<{ document: InvoiceDocumentInput }>(`${billingItemApiBase(row)}/invoice-document`);
       if (openInBrowser) {
-        openInvoiceDocument(document);
+        setPreviewDocument(document);
       } else {
         downloadDataUrl(document.dataUrl, document.fileName || 'nota-fiscal');
       }
@@ -2917,6 +2930,13 @@ export function LoadingScreen({ user, realtimeRefreshKey = 0 }: ModuleProps) {
           onMarkLoaded={markLoaded}
         />
       )}
+      {previewDocument && (
+        <DocumentPreviewDialog
+          document={previewDocument}
+          title="Documento fiscal"
+          onClose={() => setPreviewDocument(null)}
+        />
+      )}
     </ModuleFrame>
   );
 }
@@ -2978,7 +2998,10 @@ function LoadingTable({
                 <td data-label="Faturado em">{formatDateTime(row.invoicedAt)}</td>
                 <td data-label="Arquivo NF" onClick={(event) => event.stopPropagation()}>
                   {hasBillingDocument(row) ? (
-                    <button className="btn" type="button" disabled={busy} onClick={() => onDownloadInvoice(row, false)}><IconText name="download">Baixar</IconText></button>
+                    <div className="table-actions">
+                      <button className="btn" type="button" disabled={busy} onClick={() => onDownloadInvoice(row, true)}><IconText name="eye">Ver</IconText></button>
+                      <button className="btn" type="button" disabled={busy} onClick={() => onDownloadInvoice(row, false)}><IconText name="download">Baixar</IconText></button>
+                    </div>
                   ) : 'Pendente'}
                 </td>
                 <td className="row-actions-cell" data-label="Acoes" onClick={(event) => event.stopPropagation()}>
@@ -3057,7 +3080,7 @@ function LoadingDetailDialog({
             <div className="table-actions">
               {hasBillingDocument(item) ? (
                 <>
-                  <button className="btn" type="button" disabled={busy} onClick={() => onDownloadInvoice(item, true)}><IconText name="eye">Abrir NF</IconText></button>
+                  <button className="btn" type="button" disabled={busy} onClick={() => onDownloadInvoice(item, true)}><IconText name="eye">Visualizar NF</IconText></button>
                   <button className="btn" type="button" disabled={busy} onClick={() => onDownloadInvoice(item, false)}><IconText name="download">Baixar NF</IconText></button>
                 </>
               ) : (
@@ -3086,6 +3109,7 @@ export function ThirdPartyScreen({ user, realtimeRefreshKey = 0 }: ModuleProps) 
   const [form, setForm] = useState<ThirdPartyFormState>(() => emptyThirdPartyForm());
   const [purchaseDrafts, setPurchaseDrafts] = useState<Record<string, string>>({});
   const [detail, setDetail] = useState<Row | null>(null);
+  const [previewDocument, setPreviewDocument] = useState<PreviewDocument | null>(null);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [refresh, setRefresh] = useState(0);
@@ -3210,7 +3234,7 @@ export function ThirdPartyScreen({ user, realtimeRefreshKey = 0 }: ModuleProps) 
     await runAction(setError, async () => {
       const { document } = await api<{ document: InvoiceDocumentInput }>(`/api/third-party-parts/${encodeURIComponent(String(row.id))}/invoice-document`);
       if (openInBrowser) {
-        openInvoiceDocument(document);
+        setPreviewDocument(document);
       } else {
         downloadDataUrl(document.dataUrl, document.fileName || 'nota-fiscal');
       }
@@ -3386,11 +3410,18 @@ export function ThirdPartyScreen({ user, realtimeRefreshKey = 0 }: ModuleProps) 
             <p>{[detail.processDescription, detail.notes].filter(Boolean).join('\n') || '-'}</p>
           </article>
           <div className="table-actions">
-            {hasBillingDocument(detail) && <button className="btn" type="button" onClick={() => downloadInvoice(detail, true)}><IconText name="eye">Abrir NF</IconText></button>}
+            {hasBillingDocument(detail) && <button className="btn" type="button" onClick={() => downloadInvoice(detail, true)}><IconText name="eye">Visualizar NF</IconText></button>}
             {hasBillingDocument(detail) && <button className="btn" type="button" onClick={() => downloadInvoice(detail, false)}><IconText name="download">Baixar NF</IconText></button>}
             {editable && String(detail.status) !== 'Retornado' && <button className="btn" type="button" onClick={() => markReturned(detail)}><IconText name="truck">Registrar retorno</IconText></button>}
           </div>
         </section>
+      )}
+      {previewDocument && (
+        <DocumentPreviewDialog
+          document={previewDocument}
+          title="Documento fiscal"
+          onClose={() => setPreviewDocument(null)}
+        />
       )}
     </ModuleFrame>
   );
@@ -4970,13 +5001,21 @@ function QualityPhotoEditor({
 }
 
 function QualityPhotoCard({ title, photo, description, tone }: { title: string; photo: InvoiceDocumentInput | null; description: string; tone: 'wrong' | 'right' }) {
+  const [previewDocument, setPreviewDocument] = useState<PreviewDocument | null>(null);
   return (
     <article className={`quality-photo-card ${tone}`}>
       <strong>{title}</strong>
       <div className={`quality-photo-preview ${photo?.dataUrl ? 'has-image' : ''}`}>
-        {photo?.dataUrl ? <button type="button" onClick={() => openInvoiceDocument(photo)}><img src={photo.dataUrl} alt={photo.fileName || title} /></button> : <span>Sem foto</span>}
+        {photo?.dataUrl ? <button type="button" onClick={() => setPreviewDocument(photo)}><img src={photo.dataUrl} alt={photo.fileName || title} /></button> : <span>Sem foto</span>}
       </div>
       <p>{description || '-'}</p>
+      {previewDocument && (
+        <DocumentPreviewDialog
+          document={previewDocument}
+          title={title}
+          onClose={() => setPreviewDocument(null)}
+        />
+      )}
     </article>
   );
 }
@@ -9288,13 +9327,6 @@ function downloadDataUrl(dataUrl: string, fileName: string) {
   document.body.appendChild(link);
   link.click();
   link.remove();
-}
-
-function openInvoiceDocument(document: InvoiceDocumentInput) {
-  const opened = window.open(document.dataUrl, '_blank', 'noopener,noreferrer');
-  if (!opened) {
-    downloadDataUrl(document.dataUrl, document.fileName || 'nota-fiscal');
-  }
 }
 
 function filterRows(rows: Row[], search: string) {
