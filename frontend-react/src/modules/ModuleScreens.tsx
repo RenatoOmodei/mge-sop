@@ -2290,15 +2290,15 @@ function PcpIssueRow({
 
   return (
     <tr className={isPcpIssueOverdue(row) ? 'row-danger' : resolved ? 'row-muted' : ''}>
-      <td>{formatLoose(row.orderNumber)}</td>
-      <td>{formatLoose(row.customer)}</td>
-      <td>{formatLoose(row.sku)}</td>
-      <td>{formatLoose(row.productionOrder)}</td>
-      <td>{formatLoose(row.orderStatus)}</td>
-      <td>{formatLoose(row.componentCode)}</td>
-      <td>{formatLoose(row.reasonLabel)}</td>
-      <td title={String(row.motive || '')}>{formatLoose(row.motive)}</td>
-      <td>
+      <td data-label="Pedido">{formatLoose(row.orderNumber)}</td>
+      <td data-label="Cliente">{formatLoose(row.customer)}</td>
+      <td data-label="SKU">{formatLoose(row.sku)}</td>
+      <td data-label="OP">{formatLoose(row.productionOrder)}</td>
+      <td data-label="Status pedido">{formatLoose(row.orderStatus)}</td>
+      <td data-label="Componente">{formatLoose(row.componentCode)}</td>
+      <td data-label="Tipo">{formatLoose(row.reasonLabel)}</td>
+      <td data-label="Motivo" title={String(row.motive || '')}>{formatLoose(row.motive)}</td>
+      <td data-label="Pedido compra">
         {canEdit && !resolved ? (
           <span className="pcp-inline-edit">
             <input className="input table-inline-input" value={purchaseOrder} onChange={(event) => setPurchaseOrder(event.target.value.toUpperCase())} />
@@ -2306,7 +2306,7 @@ function PcpIssueRow({
           </span>
         ) : formatLoose(row.purchaseOrderNumber)}
       </td>
-      <td>
+      <td data-label="Data prevista">
         {canEdit && !resolved ? (
           <span className="pcp-inline-edit">
             <input className="input table-inline-input" type="date" value={expectedDate} onChange={(event) => setExpectedDate(event.target.value)} />
@@ -2314,12 +2314,12 @@ function PcpIssueRow({
           </span>
         ) : formatDate(row.expectedResolutionDate)}
       </td>
-      <td>{formatLoose(row.issueStatusLabel)}</td>
-      <td title={String(row.notes || '')}>{formatLoose(row.notes)}</td>
-      <td>{formatLoose(row.createdBy)}</td>
-      <td>{formatDateTime(row.createdAt)}</td>
+      <td data-label="Situacao">{formatLoose(row.issueStatusLabel)}</td>
+      <td data-label="Observacoes" title={String(row.notes || '')}>{formatLoose(row.notes)}</td>
+      <td data-label="Criado por">{formatLoose(row.createdBy)}</td>
+      <td data-label="Criado em">{formatDateTime(row.createdAt)}</td>
       {canEdit && (
-        <td className="row-actions-cell">
+        <td className="row-actions-cell" data-label="Acoes">
           <span className="table-actions">
             <button className="btn" type="button" onClick={() => onEdit(row)}><IconText name="edit">Editar</IconText></button>
             {!resolved && <button className="btn primary" type="button" onClick={() => onResolve(row)}><IconText name="check">Resolver</IconText></button>}
@@ -2963,25 +2963,25 @@ function LoadingTable({
             const id = `${billingSourceType(row)}-${String(row.id || index)}`;
             return (
               <tr key={id} className={`${hasBillingDocument(row) ? '' : 'row-warning'} clickable-row`.trim()} onClick={() => onOpen(row)}>
-                <td><span className="source-badge">{billingRequestTypeLabel(row)}</span></td>
-                <td>{billingPrimaryLabel(row)}</td>
-                <td>{billingSalesOrderLabel(row)}</td>
-                <td>{formatLoose(row.purchaseOrderNumber)}</td>
-                <td title={String(row.customer || row.supplierName || '-')}>{formatLoose(row.customer || row.supplierName)}</td>
-                <td>{formatLoose(row.invoiceNumber)}</td>
-                <td title={String(row.carrierName || '-')}>{formatLoose(row.carrierName)}</td>
-                <td>{formatLoose(row.carrierCnpj)}</td>
-                <td>{formatNumber(row.quantity)}</td>
-                <td>{formatNumber(row.machineWeight)}</td>
-                <td>{formatNumber(row.machineGrossWeight)}</td>
-                <td>{formatNumber(row.machineVolume)}</td>
-                <td>{formatDateTime(row.invoicedAt)}</td>
-                <td onClick={(event) => event.stopPropagation()}>
+                <td data-label="Origem"><span className="source-badge">{billingRequestTypeLabel(row)}</span></td>
+                <td data-label="Pedido / Romaneio">{billingPrimaryLabel(row)}</td>
+                <td data-label="Pedido venda">{billingSalesOrderLabel(row)}</td>
+                <td data-label="Pedido compra">{formatLoose(row.purchaseOrderNumber)}</td>
+                <td data-label="Cliente / fornecedor" title={String(row.customer || row.supplierName || '-')}>{formatLoose(row.customer || row.supplierName)}</td>
+                <td data-label="NF">{formatLoose(row.invoiceNumber)}</td>
+                <td data-label="Transportadora" title={String(row.carrierName || '-')}>{formatLoose(row.carrierName)}</td>
+                <td data-label="CNPJ transp.">{formatLoose(row.carrierCnpj)}</td>
+                <td data-label="Qtd.">{formatNumber(row.quantity)}</td>
+                <td data-label="Peso liq.">{formatNumber(row.machineWeight)}</td>
+                <td data-label="Peso bruto">{formatNumber(row.machineGrossWeight)}</td>
+                <td data-label="Volume">{formatNumber(row.machineVolume)}</td>
+                <td data-label="Faturado em">{formatDateTime(row.invoicedAt)}</td>
+                <td data-label="Arquivo NF" onClick={(event) => event.stopPropagation()}>
                   {hasBillingDocument(row) ? (
                     <button className="btn" type="button" disabled={busy} onClick={() => onDownloadInvoice(row, false)}><IconText name="download">Baixar</IconText></button>
                   ) : 'Pendente'}
                 </td>
-                <td className="row-actions-cell" onClick={(event) => event.stopPropagation()}>
+                <td className="row-actions-cell" data-label="Acoes" onClick={(event) => event.stopPropagation()}>
                   <div className="table-actions">
                     {canEdit && <button className="btn primary" type="button" disabled={busy} onClick={() => onMarkLoaded(row)}><IconText name="truck">Carregado</IconText></button>}
                   </div>
@@ -4876,22 +4876,22 @@ function QualityAlertsTable({
                 className={resolved ? 'row-muted' : ''}
                 onClick={() => onOpen(row)}
               >
-                <td className="select-col" onClick={(event) => event.stopPropagation()}>
+                <td className="select-col" data-label="Selecionar" onClick={(event) => event.stopPropagation()}>
                   <input type="checkbox" checked={selectedIds.includes(id)} onChange={() => onToggle(id)} aria-label="Selecionar alerta" />
                 </td>
-                <td><span className={`quality-status-pill ${resolved ? 'resolved' : 'open'}`}>{resolved ? 'Resolvido' : 'Ativo'}</span></td>
-                <td title={String(row.orderNumber || '-')}>{formatLoose(row.orderNumber)}</td>
-                <td title={String(row.customer || '-')}>{formatLoose(row.customer)}</td>
-                <td title={String(row.sku || '-')}>{formatLoose(row.sku)}</td>
-                <td title={String(row.productLine || '-')}>{formatLoose(row.productLine)}</td>
-                <td>{formatNumber(row.capacityTr)}</td>
-                <td>{formatNumber(row.quantity)}</td>
-                <td>{qualityPhotoSummary(row)}</td>
-                <td title={String(row.createdBy || '-')}>{formatLoose(row.createdBy)}</td>
-                <td>{formatDateTime(row.createdAt)}</td>
-                <td>{formatDateTime(row.resolvedAt)}</td>
+                <td data-label="Status"><span className={`quality-status-pill ${resolved ? 'resolved' : 'open'}`}>{resolved ? 'Resolvido' : 'Ativo'}</span></td>
+                <td data-label="Pedido" title={String(row.orderNumber || '-')}>{formatLoose(row.orderNumber)}</td>
+                <td data-label="Cliente" title={String(row.customer || '-')}>{formatLoose(row.customer)}</td>
+                <td data-label="SKU" title={String(row.sku || '-')}>{formatLoose(row.sku)}</td>
+                <td data-label="Linha" title={String(row.productLine || '-')}>{formatLoose(row.productLine)}</td>
+                <td data-label="Capacidade">{formatNumber(row.capacityTr)}</td>
+                <td data-label="Quantidade">{formatNumber(row.quantity)}</td>
+                <td data-label="Fotos">{qualityPhotoSummary(row)}</td>
+                <td data-label="Emitido por" title={String(row.createdBy || '-')}>{formatLoose(row.createdBy)}</td>
+                <td data-label="Emitido em">{formatDateTime(row.createdAt)}</td>
+                <td data-label="Resolvido em">{formatDateTime(row.resolvedAt)}</td>
                 {canEdit && (
-                  <td className="row-actions-cell" onClick={(event) => event.stopPropagation()}>
+                  <td className="row-actions-cell" data-label="Acoes" onClick={(event) => event.stopPropagation()}>
                     <div className="table-actions">
                       {!resolved && <button className="btn" type="button" onClick={() => onResolve(row)}><IconText name="check">Resolvido</IconText></button>}
                       <button className="btn" type="button" onClick={() => onRemove(row)}><IconText name="trash">Excluir</IconText></button>
@@ -7997,11 +7997,11 @@ function DataTable({
               onClick={onRowClick ? () => onRowClick(row) : undefined}
             >
               {columns.map((column) => (
-                <td key={column.key} title={cellValue(row, column)}>
+                <td key={column.key} title={cellValue(row, column)} data-label={column.label}>
                   {cellValue(row, column)}
                 </td>
               ))}
-              {actions && <td className="row-actions-cell" onClick={onRowClick ? (event) => event.stopPropagation() : undefined}>{actions(row)}</td>}
+              {actions && <td className="row-actions-cell" data-label="Acoes" onClick={onRowClick ? (event) => event.stopPropagation() : undefined}>{actions(row)}</td>}
             </tr>
           ))}
           {!rows.length && (

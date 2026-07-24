@@ -1072,6 +1072,7 @@ export function OrdersScreen({ user, realtimeRefreshKey = 0 }: { user: CurrentUs
                       className={`${stickyClass(index)} ${cellClass(order, column.key)}`}
                       style={stickyStyle(index, column, firstColumnWidth)}
                       title={orderCellText(order, column.key)}
+                      data-label={column.label}
                     >
                       {column.key === 'orderNumber' ? (
                         <OrderNumberCell
@@ -1090,7 +1091,7 @@ export function OrdersScreen({ user, realtimeRefreshKey = 0 }: { user: CurrentUs
                       ) : orderCellContent(order, column.key, statusCategoryByName)}
                     </td>
                   ))}
-                  <td className="actions-cell">
+                  <td className="actions-cell" data-label="Acoes">
                     {canEditOrders && canReleaseBilling(order) ? (
                       <button className="btn primary" type="button" disabled={releaseBusyId === order.id} onClick={() => releaseBilling(order)}>
                         <IconText name="check">{releaseBusyId === order.id ? 'Liberando...' : 'Liberar fat.'}</IconText>
@@ -1115,6 +1116,29 @@ export function OrdersScreen({ user, realtimeRefreshKey = 0 }: { user: CurrentUs
               )}
             </tbody>
           </table>
+        </div>
+
+        <div className="orders-mobile-list" aria-label="Pedidos de venda em cards">
+          {orders.map((order) => (
+            <OrderMobileCard
+              key={order.id}
+              order={order}
+              selected={selectedIds.has(order.id)}
+              canEditOrders={canEditOrders}
+              canRelease={canReleaseBilling(order)}
+              releaseBusy={releaseBusyId === order.id}
+              rowClass={orderRowClass(order, productionSet)}
+              statusCategory={statusCategoryByName.get(order.status)}
+              qualityMatches={qualityMatchesForOrder(order, qualityAlerts, qualityAcknowledgements)}
+              onSelect={(checked) => toggleOrderSelection(order.id, checked)}
+              onOpen={() => setSelectedOrder(order)}
+              onDocuments={() => setDocumentsDialogOrder(order)}
+              onQuality={() => setQualityNoticeOrder(order)}
+              onRelease={() => releaseBilling(order)}
+            />
+          ))}
+          {!orders.length && !loading && <p className="empty mobile-empty">Nenhum pedido encontrado.</p>}
+          {loading && <p className="empty mobile-empty">Carregando pedidos...</p>}
         </div>
 
         <div className="orders-pagination">
@@ -1343,6 +1367,139 @@ function SummaryItem({ label, value }: { label: string; value: string | number |
       <span>{label}</span>
       <strong>{value === null || value === undefined || value === '' ? '-' : value}</strong>
     </div>
+  );
+}
+
+function OrderMobileCard({
+  order,
+  selected,
+  canEditOrders,
+  canRelease,
+  releaseBusy,
+  rowClass,
+  statusCategory,
+  qualityMatches,
+  onSelect,
+  onOpen,
+  onDocuments,
+  onQuality,
+  onRelease
+}: {
+  order: SalesOrder;
+  selected: boolean;
+  canEditOrders: boolean;
+  canRelease: boolean;
+  releaseBusy: boolean;
+  rowClass: string;
+  statusCategory?: string;
+  qualityMatches: QualityMatchResult;
+  onSelect: (checked: boolean) => void;
+  onOpen: () => void;
+  onDocuments: () => void;
+  onQuality: () => void;
+  onRelease: () => void;
+}) {
+  return (
+    <article className={`order-mobile-card ${rowClass}`} onClick={onOpen}>
+      <header className="order-mobile-header">
+        <label className="order-mobile-select" onClick={(event) => event.stopPropagation()}>
+          <input
+            type="checkbox"
+            checked={selected}
+            aria-label={`Selecionar pedido ${order.orderNumber || order.id}`}
+            onChange={(event) => onSelect(event.target.checked)}
+          />
+          <strong>{order.orderNumber || '-'}</strong>
+        </label>
+        <OrderStatusCell order={order} statusCategory={statusCategory} onDocumentsClick={onDocuments} />
+      </header>
+
+      <div className="order-mobile-subtitle">
+        <span>{order.customer || 'Cliente nao informado'}</span>
+        <span>{itemTypeLabel(order.itemType)}</span>
+      </div>
+
+      <div className="order-mobile-alerts">
+        {order.pcpPendingCount > 0 && <span className="mobile-alert-chip pcp">PCP: {order.pcpPendingSummary || `${order.pcpPendingCount} pendencia(s)`}</span>}
+        {qualityMatches.red.length > 0 && <button className="mobile-alert-chip quality critical" type="button" onClick={(event) => {
+          event.stopPropagation();
+          onQuality();
+        }}>Alerta qualidade SKU</button>}
+        {!qualityMatches.red.length && qualityMatches.yellow.length > 0 && <button className="mobile-alert-chip quality warning" type="button" onClick={(event) => {
+          event.stopPropagation();
+          onQuality();
+        }}>Alerta qualidade relacionado</button>}
+      </div>
+
+      <dl className="order-mobile-grid">
+        <div>
+          <dt>SKU</dt>
+          <dd>{order.sku || '-'}</dd>
+        </div>
+        <div>
+          <dt>OP</dt>
+          <dd>{order.productionOrder || 'Sem OP'}</dd>
+        </div>
+        <div>
+          <dt>PC</dt>
+          <dd>{order.purchaseOrderNumber || '-'}</dd>
+        </div>
+        <div>
+          <dt>Linha</dt>
+          <dd>{order.productLine || '-'}</dd>
+        </div>
+        <div>
+          <dt>Capacidade</dt>
+          <dd>{formatNumber(order.capacityTr)} TR</dd>
+        </div>
+        <div>
+          <dt>Qtd.</dt>
+          <dd>{formatNumber(order.quantity)}</dd>
+        </div>
+        <div>
+          <dt>Entrada</dt>
+          <dd>{formatDate(order.entryDate)}</dd>
+        </div>
+        <div>
+          <dt>Entrega original</dt>
+          <dd>{formatDate(order.originalDeliveryDate)}</dd>
+        </div>
+        <div>
+          <dt>Entrega producao</dt>
+          <dd>
+            <span className={isProductionDeliveryDueSoon(order.productionDeliveryDate) ? 'production-delivery-alert' : ''}>
+              {formatDate(order.productionDeliveryDate)}
+              {isProductionDeliveryDueSoon(order.productionDeliveryDate) && <strong className="delivery-alert-mark">!</strong>}
+            </span>
+          </dd>
+        </div>
+        <div>
+          <dt>Atraso</dt>
+          <dd className={Number(order.daysLate) > 0 && !isOrderCompleted(order) ? 'danger-text' : ''}>{formatInteger(order.daysLate)} dias</dd>
+        </div>
+      </dl>
+
+      {order.notes && (
+        <p className="order-mobile-notes">
+          <strong>Obs.</strong>
+          <span>{order.notes}</span>
+        </p>
+      )}
+
+      <footer className="order-mobile-actions" onClick={(event) => event.stopPropagation()}>
+        <button className="btn" type="button" onClick={onOpen}>
+          <IconText name="eye">Resumo</IconText>
+        </button>
+        <button className="btn" type="button" onClick={onDocuments}>
+          <IconText name="file">Docs</IconText>
+        </button>
+        {canEditOrders && canRelease && (
+          <button className="btn primary" type="button" disabled={releaseBusy} onClick={onRelease}>
+            <IconText name="check">{releaseBusy ? 'Liberando...' : 'Liberar fat.'}</IconText>
+          </button>
+        )}
+      </footer>
+    </article>
   );
 }
 
