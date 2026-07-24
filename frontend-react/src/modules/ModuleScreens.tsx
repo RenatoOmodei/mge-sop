@@ -3741,7 +3741,19 @@ export function SequencingScreen({ user, realtimeRefreshKey = 0 }: ModuleProps) 
   }
 
   function printSequencingReport() {
-    window.setTimeout(() => window.print(), 80);
+    if (!selectedActivity) return;
+    printHtmlDocument(
+      `Relatorio de Sequenciamento - ${String(selectedActivity.label || selectedActivity.key || '')}`,
+      buildSequencingPrintDocument({
+        activity: selectedActivity,
+        rows: orderedRows,
+        schedule,
+        scheduleStart,
+        scheduleEnd,
+        totalEstimatedHours,
+        pcpPendingCount
+      })
+    );
   }
 
   return (
@@ -4026,6 +4038,174 @@ function SequencingPrintSheet({
       </table>
     </section>
   );
+}
+
+function buildSequencingPrintDocument({
+  activity,
+  rows,
+  schedule,
+  scheduleStart,
+  scheduleEnd,
+  totalEstimatedHours,
+  pcpPendingCount
+}: {
+  activity: Row;
+  rows: Row[];
+  schedule: SequencingScheduleItem[];
+  scheduleStart: Date;
+  scheduleEnd: Date;
+  totalEstimatedHours: number;
+  pcpPendingCount: number;
+}) {
+  const scheduleByOrder = new Map(schedule.map((item) => [sequencingOrderKey(item.row), item]));
+  const activityLabel = String(activity.label || activity.key || '-');
+  const printedAt = formatLocalDateTime(new Date());
+  const ganttRows = schedule.map((item, index) => `
+    <div class="gantt-row">
+      <div class="gantt-label">
+        <strong>${escapeHtml(formatInteger(item.sequenceNumber))}. Pedido ${escapeHtml(item.row.orderNumber || '-')}</strong>
+        <span>${escapeHtml(item.row.customer || '-')} | ${escapeHtml(item.row.sku || '-')}</span>
+      </div>
+      <div class="gantt-track">
+        <span style="left:${printPercent(item.offsetPercent)};width:${printPercent(item.widthPercent)}">${escapeHtml(formatNumber(item.durationHours))} h</span>
+      </div>
+      <small>${escapeHtml(formatLocalDateTime(item.startAt))} - ${escapeHtml(formatLocalDateTime(item.endAt))}</small>
+    </div>
+  `).join('');
+  const tableRows = rows.map((row, index) => {
+    const item = scheduleByOrder.get(sequencingOrderKey(row));
+    const pcpPending = String(row.pcpPendingSummary || (Number(row.pcpPendingCount) > 0 ? `${formatInteger(row.pcpPendingCount)} pend.` : '-'));
+    return `
+      <tr>
+        <td>${escapeHtml(formatInteger(item?.sequenceNumber || index + 1))}</td>
+        <td>${escapeHtml(row.orderNumber || '-')}</td>
+        <td>${escapeHtml(row.customer || '-')}</td>
+        <td>${escapeHtml(row.sku || '-')}</td>
+        <td>${escapeHtml(row.productionOrder || '-')}</td>
+        <td>${escapeHtml(row.productLine || '-')}</td>
+        <td>${escapeHtml(formatInteger(row.quantity))}</td>
+        <td>${escapeHtml(row.status || '-')}</td>
+        <td>${escapeHtml(item ? formatLocalDateTime(item.startAt) : '-')}</td>
+        <td>${escapeHtml(item ? formatLocalDateTime(item.endAt) : '-')}</td>
+        <td>${escapeHtml(item ? formatNumber(item.durationHours) : '-')}</td>
+        <td>${escapeHtml(pcpPending)}</td>
+      </tr>
+    `;
+  }).join('');
+
+  return `<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <title>${escapeHtml(`Relatorio de Sequenciamento - ${activityLabel}`)}</title>
+  <style>
+    @page { size: A4 landscape; margin: 10mm; }
+    * { box-sizing: border-box; }
+    body { margin: 0; color: #111827; background: #ffffff; font-family: Arial, sans-serif; }
+    .report { width: 100%; }
+    .header { display: grid; grid-template-columns: 76px 1fr auto; align-items: center; gap: 14px; padding-bottom: 10px; border-bottom: 2px solid #1f4e79; }
+    .header img { max-width: 76px; max-height: 48px; }
+    .header span { display: block; color: #4b5563; font-size: 10px; font-weight: 700; text-transform: uppercase; }
+    .header h1 { margin: 2px 0; color: #102a43; font-size: 21px; }
+    .header p { margin: 0; color: #374151; font-size: 12px; font-weight: 700; }
+    .header strong { color: #374151; font-size: 11px; }
+    .meta { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 7px; margin: 12px 0; }
+    .metric { min-height: 48px; padding: 7px; border: 1px solid #d8e0ea; border-radius: 5px; break-inside: avoid; }
+    .metric span { display: block; color: #64748b; font-size: 8px; font-weight: 800; text-transform: uppercase; }
+    .metric strong { display: block; margin-top: 3px; color: #111827; font-size: 11px; }
+    .gantt { display: grid; gap: 5px; margin-bottom: 12px; break-inside: avoid; }
+    .gantt h2 { margin: 0 0 3px; color: #102a43; font-size: 14px; }
+    .gantt-row { display: grid; grid-template-columns: 180px minmax(240px, 1fr) 170px; gap: 7px; align-items: center; min-height: 26px; }
+    .gantt-label strong, .gantt-label span, .gantt-row small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .gantt-label strong { color: #111827; font-size: 9px; }
+    .gantt-label span, .gantt-row small { color: #64748b; font-size: 8px; }
+    .gantt-track { position: relative; height: 18px; overflow: hidden; background: #eef2f7; border: 1px solid #d8e0ea; border-radius: 5px; }
+    .gantt-track span { position: absolute; top: 2px; bottom: 2px; min-width: 22px; display: grid; place-items: center; color: #ffffff; background: #0f5ea8; border-radius: 4px; font-size: 8px; font-weight: 800; }
+    table { width: 100%; border-collapse: collapse; font-size: 8px; }
+    th, td { padding: 4px 5px; border: 1px solid #d8e0ea; text-align: left; vertical-align: top; }
+    th { color: #102a43; background: #eef5fb; font-size: 8px; text-transform: uppercase; }
+    tr { break-inside: avoid; }
+  </style>
+</head>
+<body>
+  <main class="report">
+    <header class="header">
+      <img src="/mge-logo.png" alt="MGE air" />
+      <div>
+        <span>Synapse | MGE Smart System</span>
+        <h1>Relatorio de Sequenciamento</h1>
+        <p>${escapeHtml(activityLabel)}</p>
+      </div>
+      <strong>${escapeHtml(printedAt)}</strong>
+    </header>
+    <section class="meta">
+      <article class="metric"><span>Atividade</span><strong>${escapeHtml(activityLabel)}</strong></article>
+      <article class="metric"><span>Itens na fila</span><strong>${escapeHtml(formatInteger(rows.length))}</strong></article>
+      <article class="metric"><span>Tempo total</span><strong>${escapeHtml(formatNumber(totalEstimatedHours))} h</strong></article>
+      <article class="metric"><span>Pendencias PCP</span><strong>${escapeHtml(formatInteger(pcpPendingCount))}</strong></article>
+      <article class="metric"><span>Inicio</span><strong>${escapeHtml(formatLocalDateTime(scheduleStart))}</strong></article>
+      <article class="metric"><span>Fim</span><strong>${escapeHtml(formatLocalDateTime(scheduleEnd))}</strong></article>
+    </section>
+    <section class="gantt">
+      <h2>Cronograma Gantt</h2>
+      ${ganttRows || '<p>Sem itens para montar o cronograma.</p>'}
+    </section>
+    <table>
+      <thead>
+        <tr>
+          <th>Seq.</th><th>Pedido</th><th>Cliente</th><th>SKU</th><th>OP</th><th>Linha</th><th>Qtd.</th><th>Status</th><th>Inicio</th><th>Fim</th><th>Tempo h</th><th>Pendencias</th>
+        </tr>
+      </thead>
+      <tbody>${tableRows}</tbody>
+    </table>
+  </main>
+</body>
+</html>`;
+}
+
+function printHtmlDocument(title: string, html: string) {
+  const frame = document.createElement('iframe');
+  frame.title = title;
+  frame.style.position = 'fixed';
+  frame.style.left = '-10000px';
+  frame.style.top = '0';
+  frame.style.width = '1123px';
+  frame.style.height = '794px';
+  frame.style.border = '0';
+  frame.setAttribute('aria-hidden', 'true');
+  document.body.appendChild(frame);
+
+  const frameWindow = frame.contentWindow;
+  const frameDocument = frameWindow?.document;
+  if (!frameWindow || !frameDocument) {
+    frame.remove();
+    window.print();
+    return;
+  }
+
+  frameDocument.open();
+  frameDocument.write(html);
+  frameDocument.close();
+
+  window.setTimeout(() => {
+    frameWindow.focus();
+    frameWindow.print();
+    window.setTimeout(() => frame.remove(), 1200);
+  }, 300);
+}
+
+function printPercent(value: number) {
+  const clean = Number.isFinite(value) ? value : 0;
+  return `${Math.min(100, Math.max(0, clean)).toFixed(3)}%`;
+}
+
+function escapeHtml(value: unknown) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 export function ApsScreen({ user, realtimeRefreshKey = 0, configFocus }: ModuleProps & { configFocus?: ApsConfigFocus }) {
