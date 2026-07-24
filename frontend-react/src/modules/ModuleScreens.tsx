@@ -4385,10 +4385,12 @@ export function ApsScreen({ user, realtimeRefreshKey = 0, configFocus }: ModuleP
     updateConfig((current) => ({ ...current, settings: { ...current.settings, ...patch } }));
   }
 
-  function saveOperation(index: number, operation: ApsOperation) {
+  function saveOperation(index: number | null, operation: ApsOperation) {
     commitConfig((current) => ({
       ...current,
-      operations: current.operations.map((row, rowIndex) => (rowIndex === index ? normalizeApsOperation(operation) : row))
+      operations: index !== null && current.operations[index]
+        ? current.operations.map((row, rowIndex) => (rowIndex === index ? normalizeApsOperation(operation) : row))
+        : [...current.operations, normalizeApsOperation(operation)]
     }), 'Operacao APS salva no banco.');
   }
 
@@ -4793,6 +4795,21 @@ function ApsProductiveCalendarEditor({
     onUpdate({ calendarDays: days });
   }
 
+  function applySelectedHoursToAllDays() {
+    if (!canEdit || !activeDay) return;
+    const days = allDates.map((date) => {
+      const current = calendarByDate.get(date) || apsEffectiveCalendarDay(parseLocalDate(date), normalizedSettings);
+      return normalizeApsCalendarDay({
+        ...current,
+        startTime: activeDay.startTime,
+        dailyHours: activeDay.dailyHours,
+        lunchStart: activeDay.lunchStart,
+        lunchMinutes: activeDay.lunchMinutes
+      }, normalizedSettings);
+    });
+    onUpdate({ calendarDays: days });
+  }
+
   return (
     <section className="aps-calendar-editor">
       <div className="panel-title">
@@ -4837,6 +4854,9 @@ function ApsProductiveCalendarEditor({
             <span>Observacao</span>
             <input className="input" value={activeDay.note} disabled={!canEdit} onChange={(event) => updateDay(activeDateKey, { note: event.target.value })} />
           </label>
+          <div className="aps-calendar-selected-actions">
+            <button className="btn primary" type="button" disabled={!canEdit} onClick={applySelectedHoursToAllDays}>Aplicar para todos</button>
+          </div>
         </div>
       )}
       <div className="aps-calendar-months">
@@ -4879,10 +4899,16 @@ function ApsOperationsEditor({
   operations: ApsOperation[];
   centers: ApsWorkCenter[];
   canEdit: boolean;
-  onSave: (index: number, operation: ApsOperation) => void;
+  onSave: (index: number | null, operation: ApsOperation) => void;
 }) {
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [draft, setDraft] = useState<ApsOperation | null>(null);
+  const draftIsManual = Boolean(draft && isManualApsOperation(draft));
+
+  function startNew() {
+    setEditingIndex(null);
+    setDraft(nextApsOperation(operations, centers));
+  }
 
   function startEdit(index: number) {
     setEditingIndex(index);
@@ -4895,7 +4921,7 @@ function ApsOperationsEditor({
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (editingIndex === null || !draft) return;
+    if (!draft) return;
     onSave(editingIndex, draft);
     setEditingIndex(null);
     setDraft(null);
@@ -4903,11 +4929,16 @@ function ApsOperationsEditor({
 
   return (
     <>
+      {canEdit && (
+        <div className="module-action-row">
+          <button className="btn primary" type="button" onClick={startNew}><IconText name="plus">Inserir operacao</IconText></button>
+        </div>
+      )}
       {draft && (
         <form className="aps-operation-form" onSubmit={submit}>
           <div className="panel-title">
-            <h3>Editar operacao APS</h3>
-            <span>{draft.description || draft.code}</span>
+            <h3>{editingIndex === null ? 'Inserir operacao APS' : 'Editar operacao APS'}</h3>
+            <span>{draftIsManual ? 'Operacao manual' : 'Operacao vinculada ao status'}</span>
           </div>
           <div className="aps-operation-form-grid">
             <label className="field">
@@ -4916,19 +4947,33 @@ function ApsOperationsEditor({
             </label>
             <label className="field aps-operation-span-2">
               <span>Operacao / status</span>
-              <input className="input" value={draft.description} disabled />
+              <input className="input" value={draft.description} disabled={!canEdit || !draftIsManual} onChange={(event) => updateDraft({ description: event.target.value })} required />
             </label>
             <label className="field">
               <span>Sequencia</span>
-              <input className="input" type="number" value={draft.sortOrder} disabled />
+              <input className="input" type="number" min="0" step="1" value={draft.sortOrder} disabled={!canEdit || !draftIsManual} onChange={(event) => updateDraft({ sortOrder: toInteger(event.target.value, draft.sortOrder) })} />
             </label>
             <label className="field">
               <span>Tipo</span>
-              <input className="input" value={draft.category === 'production' ? 'Producao' : 'Auxiliar'} disabled />
+              {draftIsManual ? (
+                <select className="input" value={draft.category} disabled={!canEdit} onChange={(event) => updateDraft({ category: event.target.value })}>
+                  <option value="production">Producao</option>
+                  <option value="auxiliary">Auxiliar</option>
+                </select>
+              ) : (
+                <input className="input" value={draft.category === 'production' ? 'Producao' : 'Auxiliar'} disabled />
+              )}
             </label>
             <label className="field">
               <span>Fluxo</span>
-              <input className="input" value={draft.flowType === 'deviation' ? 'Desvio' : 'Normal'} disabled />
+              {draftIsManual ? (
+                <select className="input" value={draft.flowType} disabled={!canEdit} onChange={(event) => updateDraft({ flowType: event.target.value })}>
+                  <option value="normal">Normal</option>
+                  <option value="deviation">Desvio</option>
+                </select>
+              ) : (
+                <input className="input" value={draft.flowType === 'deviation' ? 'Desvio' : 'Normal'} disabled />
+              )}
             </label>
             <label className="field">
               <span>Setup h</span>
@@ -8375,6 +8420,35 @@ function nextApsWorkCenter(centers: ApsWorkCenter[]): ApsWorkCenter {
     code = `CT-${String(number).padStart(2, '0')}`;
   }
   return normalizeApsWorkCenter({ code, description: 'Novo centro', machineCount: 1, efficiency: 1, capacity: 8, shift: '1 turno' });
+}
+
+function nextApsOperation(operations: ApsOperation[], centers: ApsWorkCenter[]): ApsOperation {
+  let number = operations.filter(isManualApsOperation).length + 1;
+  let code = `custom:op-${String(number).padStart(2, '0')}`;
+  const existing = new Set(operations.map((operation) => operation.code));
+  while (existing.has(code)) {
+    number += 1;
+    code = `custom:op-${String(number).padStart(2, '0')}`;
+  }
+  const maxSortOrder = operations.reduce((max, operation) => Math.max(max, Number(operation.sortOrder) || 0), 0);
+  return normalizeApsOperation({
+    code,
+    description: 'Nova operacao',
+    statusName: '',
+    sortOrder: maxSortOrder + 10,
+    category: 'production',
+    flowType: 'normal',
+    setupHours: 0,
+    processHours: 1,
+    lotSize: 1,
+    minOperators: 1,
+    maxOperators: 1,
+    allowedCenters: centers.map((center) => center.code)
+  });
+}
+
+function isManualApsOperation(operation: ApsOperation) {
+  return !String(operation.statusName || '').trim() || String(operation.code || '').startsWith('custom:');
 }
 
 function nextApsOperator(operators: ApsOperator[], operations: ApsOperation[], centers: ApsWorkCenter[]): ApsOperator {

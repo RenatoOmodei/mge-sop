@@ -5588,7 +5588,7 @@ function apsOperationsFromStatuses(statuses, existingOperations) {
     operation
   ]));
 
-  return sourceStatuses
+  const statusOperations = sourceStatuses
     .slice()
     .sort((a, b) => (Number(a.sortOrder) || 999) - (Number(b.sortOrder) || 999) || compareText(a.name, b.name))
     .map((status) => {
@@ -5609,6 +5609,13 @@ function apsOperationsFromStatuses(statuses, existingOperations) {
         allowedCenters: sanitizeStringList(previous.allowedCenters).map((center) => center.toUpperCase())
       };
     });
+  const statusOperationCodes = new Set(statusOperations.map((operation) => operation.code));
+  const manualOperations = (existingOperations || [])
+    .filter((operation) => String(operation.code || '').startsWith('custom:'))
+    .filter((operation) => !statusOperationCodes.has(operation.code));
+
+  return [...statusOperations, ...manualOperations]
+    .sort((a, b) => (Number(a.sortOrder) || 999) - (Number(b.sortOrder) || 999) || compareText(a.description, b.description));
 }
 
 function normalizeApsOperatorLinks(config) {

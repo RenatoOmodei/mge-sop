@@ -3234,6 +3234,12 @@ button.mobile-alert-chip {
   grid-column: span 2;
 }
 
+.aps-calendar-selected-actions {
+  display: flex;
+  align-items: end;
+  justify-content: flex-end;
+}
+
 .aps-calendar-day {
   display: grid;
   gap: 4px;
@@ -3422,6 +3428,14 @@ button.mobile-alert-chip {
 
   .aps-calendar-note-field {
     grid-column: auto;
+  }
+
+  .aps-calendar-selected-actions {
+    justify-content: stretch;
+  }
+
+  .aps-calendar-selected-actions .btn {
+    width: 100%;
   }
 
   .aps-operation-form-grid,
