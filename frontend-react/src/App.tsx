@@ -147,6 +147,8 @@ const roleLabels: Record<UserRole, string> = {
 };
 
 const APP_NAME = 'Synapse';
+const APP_VERSION = '2026.7.13';
+type AppEnvironmentTone = 'production' | 'homolog';
 
 const moduleLabels: Record<ScreenMeta['module'], string> = {
   sop: 'S&OP',
@@ -405,6 +407,13 @@ export function App() {
   const [passwordError, setPasswordError] = useState('');
   const [passwordSuccess, setPasswordSuccess] = useState('');
   const [realtimeSignals, setRealtimeSignals] = useState<RealtimeSignalMap>({});
+  const environmentTone = resolveEnvironmentTone(health?.environment);
+  const environmentClass = environmentTone === 'homolog' ? 'env-homolog' : 'env-production';
+  const loginVersion = health?.version || window.SOP_CONFIG?.version || APP_VERSION;
+
+  useEffect(() => {
+    applyEnvironmentDocumentTheme(environmentTone);
+  }, [environmentTone]);
 
   useEffect(() => {
     api<HealthResponse>('/api/render-health')
@@ -832,7 +841,7 @@ export function App() {
 
   if (authStatus === 'checking') {
     return (
-      <main className="login-screen react-login-screen login-animated">
+      <main className={`login-screen react-login-screen login-animated ${environmentClass}`}>
         <LoginBrandIntro />
         <section className="login-panel login-panel-auth login-panel-checking">
           <BrandHeader />
@@ -841,13 +850,14 @@ export function App() {
             <span>Validando sessao...</span>
           </div>
         </section>
+        <LoginVersionBadge version={loginVersion} />
       </main>
     );
   }
 
   if (!user) {
     return (
-      <main className="login-screen react-login-screen login-animated">
+      <main className={`login-screen react-login-screen login-animated ${environmentClass}`}>
         <LoginBrandIntro />
         <section className="login-panel login-panel-auth" aria-label="Login do sistema">
           <BrandHeader />
@@ -877,14 +887,14 @@ export function App() {
               {loginBusy ? 'Entrando...' : 'Entrar'}
             </button>
           </form>
-          <HealthStrip health={health} error={healthError} />
         </section>
+        <LoginVersionBadge version={loginVersion} />
       </main>
     );
   }
 
   return (
-    <div className="erp-shell react-erp-shell">
+    <div className={`erp-shell react-erp-shell ${environmentClass}`}>
       <aside className="sidebar" aria-label="Menu principal">
         <div className="sidebar-brand">
           <img className="brand-logo sidebar-logo" src="/mge-logo.png" alt="MGE air" />
@@ -1071,6 +1081,41 @@ function BrandHeader() {
       </div>
     </div>
   );
+}
+
+function LoginVersionBadge({ version }: { version: string }) {
+  return <span className="login-version-badge">versao {version || APP_VERSION}</span>;
+}
+
+function resolveEnvironmentTone(serverEnvironment?: string): AppEnvironmentTone {
+  const source = String(serverEnvironment || window.SOP_CONFIG?.environment || '').toLowerCase();
+  if (
+    source.includes('homolog') ||
+    source.includes('hml') ||
+    source.includes('local') ||
+    source.includes('dev') ||
+    source.includes('test')
+  ) {
+    return 'homolog';
+  }
+  return 'production';
+}
+
+function applyEnvironmentDocumentTheme(environmentTone: AppEnvironmentTone) {
+  const isHomolog = environmentTone === 'homolog';
+  const themeColor = isHomolog ? '#7f1d1d' : '#172033';
+  const iconStem = isHomolog ? 'pwa-icon-homolog' : 'pwa-icon-production';
+
+  document.body.dataset.environment = environmentTone;
+  document.title = isHomolog ? 'Synapse - Homologacao' : 'Synapse';
+
+  document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')?.setAttribute('content', themeColor);
+  document.querySelector<HTMLMetaElement>('meta[name="msapplication-TileColor"]')?.setAttribute('content', themeColor);
+
+  document.querySelectorAll<HTMLLinkElement>('link[rel~="icon"], link[rel="apple-touch-icon"]').forEach((link) => {
+    const size = link.sizes?.value?.includes('512') ? '512' : '192';
+    link.href = `/${iconStem}-${size}.png`;
+  });
 }
 
 function UpdateBanner({

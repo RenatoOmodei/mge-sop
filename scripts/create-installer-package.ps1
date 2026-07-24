@@ -31,15 +31,24 @@ $homologDir = Join-Path $packageDir 'Homologacao-Local'
 New-Item -ItemType Directory -Path $prodDir -Force | Out-Null
 New-Item -ItemType Directory -Path $homologDir -Force | Out-Null
 
-$iconCandidates = @(
+$productionIconCandidates = @(
+  (Join-Path $root 'instalador-usuarios\synapse-production-icon.ico'),
+  (Join-Path $root 'instalador-usuarios\sop-mge-icon.ico'),
+  (Join-Path $root 'ERP-Pedidos-Vendas.exe')
+)
+$homologationIconCandidates = @(
+  (Join-Path $root 'instalador-usuarios\synapse-homolog-icon.ico'),
   (Join-Path $root 'instalador-usuarios\sop-mge-icon.ico'),
   (Join-Path $root 'ERP-Pedidos-Vendas.exe')
 )
 
-$iconSource = $iconCandidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
-if ($iconSource) {
-  Copy-Item -LiteralPath $iconSource -Destination (Join-Path $prodDir 'synapse-icon.ico') -Force
-  Copy-Item -LiteralPath $iconSource -Destination (Join-Path $homologDir 'synapse-icon.ico') -Force
+$productionIconSource = $productionIconCandidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+$homologationIconSource = $homologationIconCandidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+if ($productionIconSource) {
+  Copy-Item -LiteralPath $productionIconSource -Destination (Join-Path $prodDir 'synapse-icon.ico') -Force
+}
+if ($homologationIconSource) {
+  Copy-Item -LiteralPath $homologationIconSource -Destination (Join-Path $homologDir 'synapse-icon.ico') -Force
 }
 
 $productionInstaller = @'

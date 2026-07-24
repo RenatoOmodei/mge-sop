@@ -4,10 +4,14 @@ $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $desktop = [Environment]::GetFolderPath('DesktopDirectory')
 $shortcutPath = Join-Path $desktop 'S&OP Homologacao React.lnk'
 $targetPath = Join-Path $root 'iniciar-homologacao-react-local.cmd'
-$iconPath = Join-Path $root 'instalador-usuarios\sop-mge-icon.ico'
+$iconPath = Join-Path $root 'instalador-usuarios\synapse-homolog-icon.ico'
 
 if (-not (Test-Path -LiteralPath $targetPath)) {
   throw "Nao foi encontrado o iniciador: $targetPath"
+}
+
+if (-not (Test-Path -LiteralPath $iconPath)) {
+  $iconPath = Join-Path $root 'instalador-usuarios\sop-mge-icon.ico'
 }
 
 if (-not (Test-Path -LiteralPath $iconPath)) {

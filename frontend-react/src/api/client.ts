@@ -2,6 +2,8 @@ export type SopConfig = {
   apiBaseUrl?: string;
   realtimeEnabled?: boolean;
   environment?: string;
+  version?: string;
+  builtAt?: string;
 };
 
 export type ApiOptions = Omit<RequestInit, 'body'> & {

@@ -1,6 +1,6 @@
 param(
   [string]$AppUrl = "https://symphonious-quokka-707211.netlify.app",
-  [string]$AppName = "S&OP MGE"
+  [string]$AppName = "Synapse"
 )
 
 $ErrorActionPreference = "Stop"
@@ -45,9 +45,12 @@ function New-AppShortcut {
 }
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$sourceIcon = Join-Path $scriptDir "sop-mge-icon.ico"
-$installDir = Join-Path $env:LOCALAPPDATA "MGE\SOP"
-$installedIcon = Join-Path $installDir "sop-mge-icon.ico"
+$sourceIcon = Join-Path $scriptDir "synapse-production-icon.ico"
+if (-not (Test-Path -LiteralPath $sourceIcon)) {
+  $sourceIcon = Join-Path $scriptDir "sop-mge-icon.ico"
+}
+$installDir = Join-Path $env:LOCALAPPDATA "Synapse\Producao"
+$installedIcon = Join-Path $installDir "synapse-production-icon.ico"
 
 if (Test-Path -LiteralPath $sourceIcon) {
   New-Item -ItemType Directory -Path $installDir -Force | Out-Null
@@ -73,7 +76,7 @@ New-AppShortcut `
   -TargetPath $browser `
   -Arguments $arguments `
   -WorkingDirectory (Split-Path -Parent $browser) `
-  -Description "Abrir o sistema S&OP MGE" `
+  -Description "Abrir o Synapse em producao" `
   -IconPath $installedIcon
 
 New-AppShortcut `
@@ -81,7 +84,7 @@ New-AppShortcut `
   -TargetPath $browser `
   -Arguments $arguments `
   -WorkingDirectory (Split-Path -Parent $browser) `
-  -Description "Abrir o sistema S&OP MGE" `
+  -Description "Abrir o Synapse em producao" `
   -IconPath $installedIcon
 
 Write-Host ""

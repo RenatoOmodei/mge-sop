@@ -19,6 +19,13 @@
   font-family: Arial, Helvetica, sans-serif;
 }
 
+.env-homolog {
+  --primary: #dc2626;
+  --primary-strong: #b91c1c;
+  --nav: #7f1d1d;
+  --nav-2: #991b1b;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -170,6 +177,18 @@ button:disabled {
   gap: 24px;
 }
 
+.erp-shell.env-production .sidebar {
+  background: linear-gradient(180deg, #172033 0%, #203048 100%);
+}
+
+.erp-shell.env-homolog .sidebar {
+  background: linear-gradient(180deg, #7f1d1d 0%, #4c0519 100%);
+}
+
+.erp-shell.env-homolog .sidebar-brand span {
+  color: #fecaca;
+}
+
 .sidebar-brand strong {
   display: block;
 }
@@ -209,6 +228,11 @@ button:disabled {
   background: #2c3d58;
 }
 
+.erp-shell.env-homolog .nav-module-toggle:hover,
+.erp-shell.env-homolog .nav-module.is-open .nav-module-toggle {
+  background: #991b1b;
+}
+
 .nav-module-items {
   display: none;
   gap: 4px;
@@ -238,9 +262,17 @@ button:disabled {
   background: #203048;
 }
 
+.erp-shell.env-homolog .nav-item:hover {
+  background: #7f1d1d;
+}
+
 .nav-item.active {
   color: #ffffff;
   background: var(--nav-2);
+}
+
+.erp-shell.env-homolog .nav-item.active {
+  background: #b91c1c;
 }
 
 .workspace {
@@ -4291,6 +4323,11 @@ textarea.input {
     linear-gradient(118deg, #172033 0%, #1d2c42 48%, #eef4fb 48.2%, #f7fafc 100%);
 }
 
+.login-screen.login-animated.env-homolog {
+  background:
+    linear-gradient(118deg, #7f1d1d 0%, #4c0519 48%, #fff1f2 48.2%, #fff7f7 100%);
+}
+
 .login-screen.login-animated::before {
   content: "";
   position: absolute;
@@ -4301,6 +4338,21 @@ textarea.input {
     linear-gradient(0deg, rgba(255, 255, 255, 0.05) 0 1px, transparent 1px 100%);
   background-size: 48px 48px;
   mask-image: linear-gradient(90deg, #000 0%, transparent 72%);
+}
+
+.login-version-badge {
+  position: absolute;
+  right: 18px;
+  bottom: 14px;
+  z-index: 2;
+  color: #64748b;
+  font-size: 11px;
+  font-style: italic;
+  font-weight: 700;
+}
+
+.login-screen.login-animated.env-homolog .login-version-badge {
+  color: #9f1239;
 }
 
 .login-intro {
@@ -4376,6 +4428,14 @@ textarea.input {
   animation: loginLineSlide 1300ms ease-in-out 260ms both;
 }
 
+.login-screen.login-animated.env-homolog .login-intro-text span {
+  color: #fecaca;
+}
+
+.login-screen.login-animated.env-homolog .login-intro-line::after {
+  background: #f97316;
+}
+
 .login-panel-auth {
   position: relative;
   z-index: 1;
@@ -4392,6 +4452,10 @@ textarea.input {
   inset: 0 0 auto;
   height: 4px;
   background: linear-gradient(90deg, #56b6f7, #0d6efd, #1e7f4f);
+}
+
+.login-screen.login-animated.env-homolog .login-panel-auth::before {
+  background: linear-gradient(90deg, #fb7185, #dc2626, #f97316);
 }
 
 .login-panel-checking {
@@ -4461,6 +4525,10 @@ textarea.input {
 .login-input:focus {
   background: #ffffff;
   box-shadow: 0 0 0 4px rgba(13, 110, 253, 0.08);
+}
+
+.login-screen.login-animated.env-homolog .login-input:focus {
+  box-shadow: 0 0 0 4px rgba(220, 38, 38, 0.1);
 }
 
 .login-submit {
@@ -4547,6 +4615,10 @@ textarea.input {
     align-content: center;
     padding: 18px;
     background: linear-gradient(180deg, #172033 0%, #203048 38%, #f7fafc 38.2%, #f7fafc 100%);
+  }
+
+  .login-screen.login-animated.env-homolog {
+    background: linear-gradient(180deg, #7f1d1d 0%, #4c0519 38%, #fff7f7 38.2%, #fff7f7 100%);
   }
 
   .login-intro {

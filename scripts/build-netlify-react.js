@@ -4,6 +4,7 @@ const path = require('path');
 const rootDir = path.resolve(__dirname, '..');
 const reactBuildDir = path.join(rootDir, 'dist-react');
 const outputDir = path.resolve(process.env.NETLIFY_REACT_OUTPUT_DIR || path.join(rootDir, 'dist-netlify-react'));
+const packageJson = JSON.parse(fs.readFileSync(path.join(rootDir, 'package.json'), 'utf8'));
 const netlifyContext = String(process.env.CONTEXT || '').trim();
 const appEnvironment = String(process.env.SOP_ENV || (netlifyContext === 'production' ? 'production' : 'homolog')).trim();
 const environmentBackendUrl = appEnvironment === 'production'
@@ -25,6 +26,7 @@ const runtimeConfig = {
   realtimeEnabled: false,
   deployedOn: 'netlify-react',
   environment: appEnvironment,
+  version: packageJson.version,
   builtAt: new Date().toISOString()
 };
 const buildId = String(process.env.COMMIT_REF || process.env.DEPLOY_ID || runtimeConfig.builtAt)
@@ -47,6 +49,8 @@ redirects.push('/* /index.html 200');
 
 fs.writeFileSync(path.join(outputDir, '_redirects'), `${redirects.join('\n')}\n`, 'utf8');
 
+configureEnvironmentAssets(outputDir, appEnvironment);
+
 if (rawBackendUrl && !backendUrl) {
   console.warn(`SOP_BACKEND_URL parece ser um exemplo e foi ignorada: ${rawBackendUrl}`);
 }
@@ -66,4 +70,39 @@ function stampServiceWorkerCache(dir, id) {
     source.replace(/const CACHE_NAME = 'mge-sop-shell-[^']+';/, `const CACHE_NAME = 'mge-sop-shell-${id}';`),
     'utf8'
   );
+}
+
+function configureEnvironmentAssets(dir, environment) {
+  const isProduction = environment === 'production';
+  const iconStem = isProduction ? 'pwa-icon-production' : 'pwa-icon-homolog';
+  const themeColor = isProduction ? '#172033' : '#7f1d1d';
+  const appName = isProduction ? 'Synapse' : 'Synapse Homologacao';
+  const shortName = isProduction ? 'Synapse' : 'Synapse HML';
+
+  for (const size of ['192', '512']) {
+    const source = path.join(dir, `${iconStem}-${size}.png`);
+    const target = path.join(dir, `pwa-icon-${size}.png`);
+    if (fs.existsSync(source)) {
+      fs.copyFileSync(source, target);
+    }
+  }
+
+  const manifestPath = path.join(dir, 'manifest.webmanifest');
+  if (fs.existsSync(manifestPath)) {
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    manifest.name = appName;
+    manifest.short_name = shortName;
+    manifest.theme_color = themeColor;
+    fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+  }
+
+  const indexPath = path.join(dir, 'index.html');
+  if (fs.existsSync(indexPath)) {
+    const title = isProduction ? 'Synapse' : 'Synapse - Homologacao';
+    const html = fs.readFileSync(indexPath, 'utf8')
+      .replace(/<title>.*?<\/title>/, `<title>${title}</title>`)
+      .replace(/<meta name="theme-color" content="[^"]*">/, `<meta name="theme-color" content="${themeColor}">`)
+      .replace(/<meta name="msapplication-TileColor" content="[^"]*">/, `<meta name="msapplication-TileColor" content="${themeColor}">`);
+    fs.writeFileSync(indexPath, html, 'utf8');
+  }
 }
