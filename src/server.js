@@ -1207,7 +1207,7 @@ async function handleApi(context) {
   }
 
   if (req.method === 'GET' && pathname === '/api/purchase-pending') {
-    if (!canViewTab(session, 'pcp')) {
+    if (!canViewTab(session, 'pcp') && !canViewTab(session, 'orders')) {
       sendJson(res, 403, { error: 'Acesso negado aos pedidos de compras pendentes.' });
       return;
     }
@@ -1240,7 +1240,7 @@ async function handleApi(context) {
       entityLabel: body.sourceName || 'Tabela externa',
       details: `${Array.isArray(body.rows) ? body.rows.length : 0} linha(s) importada(s); baixas anteriores preservadas`
     });
-    broadcastRealtime(server, ['pcp', 'reports']);
+    broadcastRealtime(server, ['pcp', 'orders', 'reports']);
     sendJson(res, 200, { items });
     return;
   }
@@ -1276,7 +1276,7 @@ async function handleApi(context) {
       entityLabel: purchasePendingItemLabel(item),
       details: item.resolutionNote || ''
     });
-    broadcastRealtime(server, ['pcp', 'reports']);
+    broadcastRealtime(server, ['pcp', 'orders', 'reports']);
     sendJson(res, 200, { item, items: db.listPurchasePendingItems() });
     return;
   }
@@ -1296,7 +1296,7 @@ async function handleApi(context) {
       entityLabel: 'Pendentes',
       details: `${removed} item(ns) pendente(s) removido(s); baixas preservadas`
     });
-    broadcastRealtime(server, ['pcp', 'reports']);
+    broadcastRealtime(server, ['pcp', 'orders', 'reports']);
     sendJson(res, 200, { removed, items: db.listPurchasePendingItems() });
     return;
   }

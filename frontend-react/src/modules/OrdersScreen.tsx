@@ -74,6 +74,8 @@ type SalesOrder = {
   photoCount: number;
   pcpPendingCount: number;
   pcpPendingSummary: string;
+  purchasePendingCount?: number;
+  purchasePendingSummary?: string;
 };
 
 type OrderStages = {
@@ -109,6 +111,18 @@ type QualityAlert = {
 type QualityAcknowledgement = {
   alertId: string;
   orderId: string;
+};
+
+type PurchasePendingItem = Record<string, unknown> & {
+  id: string;
+  itemStatus?: string;
+  itemStatusLabel?: string;
+};
+
+type PurchasePendingMatch = {
+  count: number;
+  summary: string;
+  items: PurchasePendingItem[];
 };
 
 type StatusDetail = {
@@ -281,6 +295,7 @@ export function OrdersScreen({ user, realtimeRefreshKey = 0 }: { user: CurrentUs
   const [customers, setCustomers] = useState<string[]>([]);
   const [qualityAlerts, setQualityAlerts] = useState<QualityAlert[]>([]);
   const [qualityAcknowledgements, setQualityAcknowledgements] = useState<QualityAcknowledgement[]>([]);
+  const [purchasePendingItems, setPurchasePendingItems] = useState<PurchasePendingItem[]>([]);
   const [preferencesReady, setPreferencesReady] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -305,13 +320,19 @@ export function OrdersScreen({ user, realtimeRefreshKey = 0 }: { user: CurrentUs
   const tableRef = useRef<HTMLTableElement | null>(null);
   const syncingScrollRef = useRef(false);
   const canEditOrders = user.role === 'admin' || user.canEditOrders || user.editableTabs.includes('orders');
+  const canLoadPurchasePending = user.role === 'admin' || user.visibleTabs.includes('orders') || user.visibleTabs.includes('pcp');
   const visibleColumns = tableState.visibleColumns
     .map((key) => columnByKey.get(key))
     .filter(Boolean)
     .map((column) => ({ ...column!, width: columnWidthFor(column!.key, tableState.columnWidths) })) as OrderColumn[];
   const firstColumnWidth = visibleColumns[0]?.width || 0;
   const tableMinWidth = visibleColumns.reduce((sum, column) => sum + column.width, 120);
-  const selectedOrders = useMemo(() => orders.filter((order) => selectedIds.has(order.id)), [orders, selectedIds]);
+  const purchasePendingByOrder = useMemo(() => buildPurchasePendingByOrder(purchasePendingItems), [purchasePendingItems]);
+  const displayOrders = useMemo(
+    () => orders.map((order) => decorateOrderWithPurchasePending(order, purchasePendingByOrder)),
+    [orders, purchasePendingByOrder]
+  );
+  const selectedOrders = useMemo(() => displayOrders.filter((order) => selectedIds.has(order.id)), [displayOrders, selectedIds]);
   const selectedCount = selectedIds.size;
 
   useEffect(() => {
@@ -348,6 +369,28 @@ export function OrdersScreen({ user, realtimeRefreshKey = 0 }: { user: CurrentUs
       ignore = true;
     };
   }, [refreshKey, realtimeRefreshKey]);
+
+  useEffect(() => {
+    let ignore = false;
+    if (!canLoadPurchasePending) {
+      setPurchasePendingItems([]);
+      return () => {
+        ignore = true;
+      };
+    }
+
+    api<{ items?: PurchasePendingItem[] }>('/api/purchase-pending')
+      .then((data) => {
+        if (ignore) return;
+        setPurchasePendingItems((data.items || []).filter((item) => String(item.itemStatus || 'pending') !== 'resolved'));
+      })
+      .catch(() => {
+        if (!ignore) setPurchasePendingItems([]);
+      });
+    return () => {
+      ignore = true;
+    };
+  }, [canLoadPurchasePending, refreshKey, realtimeRefreshKey]);
 
   useEffect(() => {
     let ignore = false;
@@ -427,6 +470,10 @@ export function OrdersScreen({ user, realtimeRefreshKey = 0 }: { user: CurrentUs
     window.addEventListener('resize', syncTopScrollbar);
     return () => window.removeEventListener('resize', syncTopScrollbar);
   }, [orders, visibleColumns.length, tableMinWidth]);
+
+  useEffect(() => {
+    setSelectedOrder((current) => (current ? displayOrders.find((order) => order.id === current.id) || current : current));
+  }, [displayOrders]);
 
   useEffect(() => {
     setSelectedIds((current) => {
@@ -846,7 +893,7 @@ export function OrdersScreen({ user, realtimeRefreshKey = 0 }: { user: CurrentUs
   function exportCurrentPage() {
     const rows = [
       visibleColumns.map((column) => column.label),
-      ...orders.map((order) => visibleColumns.map((column) => orderCellText(order, column.key)))
+      ...displayOrders.map((order) => visibleColumns.map((column) => orderCellText(order, column.key)))
     ];
     const csv = `\ufeff${rows.map((row) => row.map(csvCell).join(';')).join('\r\n')}`;
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
@@ -860,7 +907,7 @@ export function OrdersScreen({ user, realtimeRefreshKey = 0 }: { user: CurrentUs
     URL.revokeObjectURL(url);
   }
 
-  const allVisibleSelected = orders.length > 0 && orders.every((order) => selectedIds.has(order.id));
+  const allVisibleSelected = displayOrders.length > 0 && displayOrders.every((order) => selectedIds.has(order.id));
 
   return (
     <section className="orders-react">
@@ -1062,7 +1109,7 @@ export function OrdersScreen({ user, realtimeRefreshKey = 0 }: { user: CurrentUs
               </tr>
             </thead>
             <tbody>
-              {orders.map((order) => (
+              {displayOrders.map((order) => (
                 <tr className={orderRowClass(order, productionSet)} key={order.id} onClick={(event) => {
                   if ((event.target as HTMLElement).closest('button, input, a, summary')) return;
                   setSelectedOrder(order);
@@ -1120,7 +1167,7 @@ export function OrdersScreen({ user, realtimeRefreshKey = 0 }: { user: CurrentUs
         </div>
 
         <div className="orders-mobile-list" aria-label="Pedidos de venda em cards">
-          {orders.map((order) => (
+          {displayOrders.map((order) => (
             <OrderMobileCard
               key={order.id}
               order={order}
@@ -1307,10 +1354,10 @@ function OrderSummaryDialog({
             <span>Observacoes</span>
             <p>{order.notes || '-'}</p>
           </div>
-          {order.pcpPendingCount > 0 && (
+          {orderPendingAttentionCount(order) > 0 && (
             <div className="order-summary-notes warning">
-              <span>Pendencias PCP</span>
-              <p>{order.pcpPendingSummary || `${order.pcpPendingCount} pendencia(s) aberta(s).`}</p>
+              <span>Pendencias</span>
+              <p>{orderPendingAttentionSummary(order)}</p>
             </div>
           )}
           <div className="order-summary-notes">
@@ -1421,7 +1468,7 @@ function OrderMobileCard({
       </div>
 
       <div className="order-mobile-alerts">
-        {order.pcpPendingCount > 0 && <span className="mobile-alert-chip pcp">PCP: {order.pcpPendingSummary || `${order.pcpPendingCount} pendencia(s)`}</span>}
+        {orderPendingAttentionCount(order) > 0 && <span className="mobile-alert-chip pcp">{orderPendingAttentionSummary(order)}</span>}
         {qualityMatches.red.length > 0 && <button className="mobile-alert-chip quality critical" type="button" onClick={(event) => {
           event.stopPropagation();
           onQuality();
@@ -1525,7 +1572,7 @@ function OrderNumberCell({
         aria-label={`Selecionar pedido ${order.orderNumber || order.id}`}
         onChange={(event) => onSelect(event.target.checked)}
       />
-      {order.pcpPendingCount > 0 && <span className="pcp-alert-mark" title={order.pcpPendingSummary || 'Pendencia PCP'}>!</span>}
+      {orderPendingAttentionCount(order) > 0 && <span className="pcp-alert-mark" title={orderPendingAttentionSummary(order)}>!</span>}
       {qualityMatches.red.length > 0 && (
         <button className="quality-alert-mark critical" type="button" title="Alerta critico de qualidade para este SKU" onClick={onQualityClick}>Q</button>
       )}
@@ -2108,6 +2155,166 @@ function qualityMatchesForOrder(order: SalesOrder, alerts: QualityAlert[], ackno
   return { red, yellow, all: [...red, ...yellow] };
 }
 
+function decorateOrderWithPurchasePending(order: SalesOrder, purchasePendingByOrder: Map<string, PurchasePendingMatch>): SalesOrder {
+  if (!isExactProductionStatus(order.status)) {
+    return { ...order, purchasePendingCount: 0, purchasePendingSummary: '' };
+  }
+
+  const matches = new Map<string, PurchasePendingItem>();
+  for (const key of orderReferenceTokens(order.orderNumber)) {
+    const match = purchasePendingByOrder.get(key);
+    if (!match) continue;
+    for (const item of match.items) {
+      matches.set(String(item.id), item);
+    }
+  }
+
+  const items = Array.from(matches.values());
+  return {
+    ...order,
+    purchasePendingCount: items.length,
+    purchasePendingSummary: purchasePendingSummaryForItems(items)
+  };
+}
+
+function buildPurchasePendingByOrder(items: PurchasePendingItem[]) {
+  const map = new Map<string, PurchasePendingItem[]>();
+  for (const item of items) {
+    if (String(item.itemStatus || 'pending') === 'resolved') continue;
+    const observation = purchasePendingInternalObservation(item);
+    if (!observation) continue;
+
+    for (const token of orderReferenceTokens(observation)) {
+      const rows = map.get(token) || [];
+      rows.push(item);
+      map.set(token, rows);
+    }
+  }
+
+  const summaryMap = new Map<string, PurchasePendingMatch>();
+  for (const [token, tokenItems] of map.entries()) {
+    const uniqueItems = Array.from(new Map(tokenItems.map((item) => [String(item.id), item])).values());
+    summaryMap.set(token, {
+      count: uniqueItems.length,
+      summary: purchasePendingSummaryForItems(uniqueItems),
+      items: uniqueItems
+    });
+  }
+  return summaryMap;
+}
+
+function purchasePendingInternalObservation(item: PurchasePendingItem) {
+  const key = purchasePendingInternalObservationKey(item);
+  return key ? String(item[key] || '').trim() : '';
+}
+
+function purchasePendingInternalObservationKey(item: PurchasePendingItem) {
+  const keys = Object.keys(item).filter((key) => !purchasePendingMetaKeys().has(key));
+  const exactNames = new Set([
+    'observacao do interna',
+    'observacao interna',
+    'observacao interna do pedido',
+    'obs interna',
+    'obs. interna'
+  ]);
+  return keys.find((key) => exactNames.has(normalizeComparableText(key)))
+    || keys.find((key) => {
+      const normalized = normalizeComparableText(key);
+      return normalized.includes('observacao') && normalized.includes('interna');
+    })
+    || keys.find((key) => {
+      const normalized = normalizeComparableText(key);
+      return normalized.includes('obs') && normalized.includes('interna');
+    })
+    || '';
+}
+
+function orderReferenceTokens(value: unknown) {
+  const normalized = normalizeComparableText(String(value || ''));
+  const parts = normalized.split(' ').filter((part) => part.length >= 2);
+  const tokens = new Set(parts);
+  for (let index = 0; index < parts.length - 1; index += 1) {
+    const combined = `${parts[index]}${parts[index + 1]}`;
+    if (combined.length >= 2) tokens.add(combined);
+  }
+
+  const compact = parts.join('');
+  if (compact.length >= 2 && compact.length <= 24) tokens.add(compact);
+  const digits = compact.replace(/\D+/g, '');
+  if (digits.length >= 2) tokens.add(digits);
+  return Array.from(tokens);
+}
+
+function normalizeComparableText(value: string) {
+  return normalizeText(value).replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+function purchasePendingSummaryForItems(items: PurchasePendingItem[]) {
+  if (!items.length) return '';
+  const details = items.slice(0, 3).map((item) => purchasePendingItemSummary(item)).filter(Boolean);
+  const extra = items.length > 3 ? `; +${items.length - 3} pendencia(s)` : '';
+  return `Compras: ${details.join('; ')}${extra}`;
+}
+
+function purchasePendingItemSummary(item: PurchasePendingItem) {
+  const purchaseOrder = purchasePendingFieldValue(item, ['pedido de compra', 'pedido compra', 'purchase order', 'pc']);
+  const code = purchasePendingFieldValue(item, ['codigo', 'cod', 'sku', 'item']);
+  const description = purchasePendingFieldValue(item, ['descricao', 'description', 'produto']);
+  const buyer = purchasePendingFieldValue(item, ['comprador', 'buyer', 'responsavel compras']);
+  const dueDate = purchasePendingFieldValue(item, ['data entrega prevista', 'entrega prevista', 'previsao entrega']);
+  const parts = [
+    purchaseOrder ? `PC ${purchaseOrder}` : '',
+    code ? `Cod. ${code}` : '',
+    description,
+    buyer ? `Comprador: ${buyer}` : '',
+    dueDate ? `Prev.: ${dueDate}` : ''
+  ].filter(Boolean);
+  return parts.join(' | ') || 'Compra pendente vinculada';
+}
+
+function purchasePendingFieldValue(item: PurchasePendingItem, needles: string[]) {
+  const key = purchasePendingKey(item, needles);
+  return key ? String(item[key] || '').trim() : '';
+}
+
+function purchasePendingKey(item: PurchasePendingItem, needles: string[]) {
+  const keys = Object.keys(item).filter((key) => !purchasePendingMetaKeys().has(key));
+  return keys.find((key) => needles.some((needle) => normalizeComparableText(key).includes(normalizeComparableText(needle)))) || '';
+}
+
+function purchasePendingMetaKeys() {
+  return new Set([
+    'id',
+    'importBatchId',
+    'sourceName',
+    'rowIndex',
+    'itemStatus',
+    'itemStatusLabel',
+    'resolutionNote',
+    'resolvedBy',
+    'resolvedAt',
+    'importedBy',
+    'importedAt',
+    'createdAt',
+    'updatedAt'
+  ]);
+}
+
+function orderPendingAttentionCount(order: SalesOrder) {
+  return (Number(order.pcpPendingCount) || 0) + (Number(order.purchasePendingCount) || 0);
+}
+
+function orderPendingAttentionSummary(order: SalesOrder) {
+  const sections: string[] = [];
+  if (Number(order.pcpPendingCount) > 0) {
+    sections.push(`PCP: ${order.pcpPendingSummary || `${order.pcpPendingCount} pendencia(s) aberta(s).`}`);
+  }
+  if (Number(order.purchasePendingCount) > 0) {
+    sections.push(order.purchasePendingSummary || `${order.purchasePendingCount} compra(s) pendente(s).`);
+  }
+  return sections.join(' | ') || 'Pendencia aberta.';
+}
+
 function normalizeTableState(value: Partial<OrdersTableState> = {}): OrdersTableState {
   return {
     search: String(value.search || '').trim(),
@@ -2221,7 +2428,7 @@ function orderCellContent(order: SalesOrder, key: OrderColumnKey, statusCategory
   if (key === 'orderNumber') {
     return (
       <span className="order-number-alert">
-        {order.pcpPendingCount > 0 && <span className="pcp-alert-mark" title={order.pcpPendingSummary || 'Pendencia PCP'}>!</span>}
+        {orderPendingAttentionCount(order) > 0 && <span className="pcp-alert-mark" title={orderPendingAttentionSummary(order)}>!</span>}
         <span>{order.orderNumber || '-'}</span>
       </span>
     );
@@ -2271,7 +2478,7 @@ function cellClass(order: SalesOrder, key: OrderColumnKey) {
 
 function orderRowClass(order: SalesOrder, productionSet: Set<string>) {
   if (isOrderCompleted(order)) return 'order-row-completed';
-  if (Number(order.pcpPendingCount) > 0) return 'order-row-pcp-pending';
+  if (orderPendingAttentionCount(order) > 0) return 'order-row-pcp-pending';
   if (isOrderOverdue(order)) return 'order-row-overdue';
   if (productionSet.has(order.status)) return 'order-row-production';
   if (isAwaitingBillingRelease(order)) return 'order-row-awaiting-billing';
@@ -2280,6 +2487,10 @@ function orderRowClass(order: SalesOrder, productionSet: Set<string>) {
 
 function isOrderCompleted(order: SalesOrder) {
   return normalizeText(order.status).includes('conclu') || order.billingStage === 'loaded';
+}
+
+function isExactProductionStatus(status: string) {
+  return normalizeText(status).replace(/\s+/g, ' ').trim() === 'em producao';
 }
 
 function isOrderOverdue(order: SalesOrder) {
