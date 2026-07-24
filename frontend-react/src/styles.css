@@ -2552,11 +2552,6 @@ button.mobile-alert-chip {
   color: #5b3d00;
 }
 
-.generic-table tr.row-billing-pending td {
-  background: #fff7cc;
-  color: #4a3a00;
-}
-
 .generic-table tr.row-muted td {
   background: #f8fafc;
   color: var(--muted);
@@ -2568,6 +2563,16 @@ button.mobile-alert-chip {
 
 .generic-table tr.clickable-row:hover td {
   background: #eef6ff;
+}
+
+.billing-awaiting-table .generic-table tbody tr.billing-awaiting-invoice-row > td,
+.billing-awaiting-table .generic-table tbody tr.billing-awaiting-invoice-row.clickable-row > td {
+  background: #fff7cc !important;
+  color: #4a3a00;
+}
+
+.billing-awaiting-table .generic-table tbody tr.billing-awaiting-invoice-row.clickable-row:hover > td {
+  background: #ffef99 !important;
 }
 
 .pcp-table-wrap {
@@ -5387,7 +5392,7 @@ textarea.input {
     background: #fff8e6;
   }
 
-  .generic-table tbody tr.row-billing-pending {
+  .billing-awaiting-table .generic-table tbody tr.billing-awaiting-invoice-row {
     border-color: #facc15;
     background: #fff7cc;
   }

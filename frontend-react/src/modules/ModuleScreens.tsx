@@ -2508,22 +2508,24 @@ export function BillingScreen({ user, realtimeRefreshKey = 0 }: ModuleProps) {
           <h3>Aguardando faturamento</h3>
           <span>{releasedRows.length} itens | clique na linha para tratar</span>
         </div>
-        <DataTable
-          rows={releasedRows}
-          columns={billingReleasedColumns()}
-          actions={(row) => (
-            <button
-              className="btn primary"
-              type="button"
-              disabled={!canTreatBilling}
-              onClick={() => openBillingItem(row, 'released')}
-            >
-              Tratar
-            </button>
-          )}
-          onRowClick={(row) => openBillingItem(row, 'released')}
-          rowClass={(row) => `row-billing-pending${billingSourceType(row) === 'thirdParty' && !String(row.purchaseOrderNumber || '').trim() ? ' row-warning' : ''}`}
-        />
+        <div className="billing-awaiting-table">
+          <DataTable
+            rows={releasedRows}
+            columns={billingReleasedColumns()}
+            actions={(row) => (
+              <button
+                className="btn primary"
+                type="button"
+                disabled={!canTreatBilling}
+                onClick={() => openBillingItem(row, 'released')}
+              >
+                Tratar
+              </button>
+            )}
+            onRowClick={(row) => openBillingItem(row, 'released')}
+            rowClass={() => 'billing-awaiting-invoice-row'}
+          />
+        </div>
       </section>
 
       <section className="module-panel">
