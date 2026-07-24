@@ -185,10 +185,10 @@ New-EnvironmentIconSet `
 New-EnvironmentIconSet `
   -Name 'homolog' `
   -Badge 'HML' `
-  -Background ([System.Drawing.Color]::FromArgb(255, 127, 29, 29)) `
-  -Background2 ([System.Drawing.Color]::FromArgb(255, 76, 5, 25)) `
-  -Accent ([System.Drawing.Color]::FromArgb(255, 251, 113, 133)) `
-  -Accent2 ([System.Drawing.Color]::FromArgb(255, 249, 115, 22))
+  -Background ([System.Drawing.Color]::FromArgb(255, 220, 38, 38)) `
+  -Background2 ([System.Drawing.Color]::FromArgb(255, 153, 27, 27)) `
+  -Accent ([System.Drawing.Color]::FromArgb(255, 255, 255, 255)) `
+  -Accent2 ([System.Drawing.Color]::FromArgb(255, 254, 202, 202))
 
 Copy-Item -LiteralPath (Join-Path $PublicDir 'pwa-icon-production-512.png') -Destination (Join-Path $PublicDir 'pwa-icon-512.png') -Force
 Copy-Item -LiteralPath (Join-Path $PublicDir 'pwa-icon-production-192.png') -Destination (Join-Path $PublicDir 'pwa-icon-192.png') -Force
