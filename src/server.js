@@ -1206,6 +1206,101 @@ async function handleApi(context) {
     return;
   }
 
+  if (req.method === 'GET' && pathname === '/api/purchase-pending') {
+    if (!canViewTab(session, 'pcp')) {
+      sendJson(res, 403, { error: 'Acesso negado aos pedidos de compras pendentes.' });
+      return;
+    }
+
+    sendJson(res, 200, { items: db.listPurchasePendingItems() });
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/api/purchase-pending/import') {
+    if (!canEditTab(session, 'pcp')) {
+      sendJson(res, 403, { error: 'Usuario sem permissao para importar pedidos de compras pendentes.' });
+      return;
+    }
+
+    const body = await readJsonBody(req);
+    const actor = session.user.name || session.user.username;
+    let items;
+
+    try {
+      items = db.replacePurchasePendingItems(body.rows || [], body.sourceName || '', actor);
+    } catch (error) {
+      sendJson(res, 400, { error: error.message });
+      return;
+    }
+
+    db.logActivity({
+      actor,
+      action: 'Pedidos de compras pendentes importados',
+      entityType: 'Supply',
+      entityLabel: body.sourceName || 'Tabela externa',
+      details: `${Array.isArray(body.rows) ? body.rows.length : 0} linha(s) importada(s); baixas anteriores preservadas`
+    });
+    broadcastRealtime(server, ['pcp', 'reports']);
+    sendJson(res, 200, { items });
+    return;
+  }
+
+  const purchasePendingResolveMatch = pathname.match(/^\/api\/purchase-pending\/([^/]+)\/resolve$/);
+  if (purchasePendingResolveMatch && req.method === 'PATCH') {
+    if (!canEditTab(session, 'pcp')) {
+      sendJson(res, 403, { error: 'Usuario sem permissao para baixar pedidos de compras pendentes.' });
+      return;
+    }
+
+    const id = decodeURIComponent(purchasePendingResolveMatch[1]);
+    const body = await readJsonBody(req);
+    const actor = session.user.name || session.user.username;
+    let item;
+
+    try {
+      item = db.resolvePurchasePendingItem(id, body.note || body.resolutionNote || '', actor);
+    } catch (error) {
+      sendJson(res, 400, { error: error.message });
+      return;
+    }
+
+    if (!item) {
+      sendJson(res, 404, { error: 'Pedido de compra pendente nao encontrado.' });
+      return;
+    }
+
+    db.logActivity({
+      actor,
+      action: 'Pedido de compra pendente baixado',
+      entityType: 'Supply',
+      entityLabel: purchasePendingItemLabel(item),
+      details: item.resolutionNote || ''
+    });
+    broadcastRealtime(server, ['pcp', 'reports']);
+    sendJson(res, 200, { item, items: db.listPurchasePendingItems() });
+    return;
+  }
+
+  if (req.method === 'DELETE' && pathname === '/api/purchase-pending') {
+    if (!canEditTab(session, 'pcp')) {
+      sendJson(res, 403, { error: 'Usuario sem permissao para limpar pedidos de compras pendentes.' });
+      return;
+    }
+
+    const actor = session.user.name || session.user.username;
+    const removed = db.clearPurchasePendingItems('pending');
+    db.logActivity({
+      actor,
+      action: 'Pedidos de compras pendentes limpos',
+      entityType: 'Supply',
+      entityLabel: 'Pendentes',
+      details: `${removed} item(ns) pendente(s) removido(s); baixas preservadas`
+    });
+    broadcastRealtime(server, ['pcp', 'reports']);
+    sendJson(res, 200, { removed, items: db.listPurchasePendingItems() });
+    return;
+  }
+
   if (req.method === 'GET' && pathname === '/api/activity-log') {
     if (!canViewTab(session, 'reports')) {
       sendJson(res, 403, { error: 'Acesso negado a esta aba.' });
@@ -3259,6 +3354,28 @@ function normalizeText(value) {
     .toLowerCase()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '');
+}
+
+function purchasePendingItemLabel(item = {}) {
+  const preferredNames = [
+    'pedido de compra',
+    'pedido compra',
+    'purchase order',
+    'pc',
+    'fornecedor',
+    'supplier',
+    'cliente',
+    'codigo',
+    'código',
+    'descricao',
+    'descrição'
+  ];
+  for (const name of preferredNames) {
+    const key = Object.keys(item).find((candidate) => normalizeText(candidate) === normalizeText(name));
+    const value = key ? String(item[key] || '').trim() : '';
+    if (value) return value.slice(0, 180);
+  }
+  return String(item.id || 'Pedido de compra pendente').slice(0, 180);
 }
 
 function formatDimensions(order) {

@@ -283,6 +283,7 @@ class LocalDatabase {
     this.ensureSalesOrderColumns();
     this.ensureBillingColumns();
     this.ensurePcpPendingIssueColumns();
+    this.ensurePurchasePendingItemColumns();
     this.ensureStageSequenceColumns();
     this.ensureThirdPartyPartColumns();
     this.ensureQualityAlertColumns();
@@ -511,6 +512,22 @@ class LocalDatabase {
         UNIQUE(reason, name)
       );
 
+      CREATE TABLE IF NOT EXISTS purchase_pending_items (
+        id TEXT PRIMARY KEY,
+        import_batch_id TEXT NOT NULL DEFAULT '',
+        source_name TEXT NOT NULL DEFAULT '',
+        row_index INTEGER NOT NULL DEFAULT 0,
+        data_json TEXT NOT NULL DEFAULT '{}',
+        item_status TEXT NOT NULL DEFAULT 'pending',
+        resolution_note TEXT NOT NULL DEFAULT '',
+        resolved_by TEXT NOT NULL DEFAULT '',
+        resolved_at TEXT NOT NULL DEFAULT '',
+        imported_by TEXT NOT NULL DEFAULT '',
+        imported_at TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
       CREATE TABLE IF NOT EXISTS order_stage_sequences (
         id TEXT PRIMARY KEY,
         order_id TEXT NOT NULL,
@@ -621,6 +638,9 @@ class LocalDatabase {
       CREATE INDEX IF NOT EXISTS idx_pcp_pending_issues_status ON pcp_pending_issues(issue_status);
       CREATE INDEX IF NOT EXISTS idx_pcp_pending_issues_reason ON pcp_pending_issues(reason);
       CREATE INDEX IF NOT EXISTS idx_pcp_pending_motives_reason ON pcp_pending_motives(reason, name);
+      CREATE INDEX IF NOT EXISTS idx_purchase_pending_items_status ON purchase_pending_items(item_status);
+      CREATE INDEX IF NOT EXISTS idx_purchase_pending_items_imported_at ON purchase_pending_items(imported_at);
+      CREATE INDEX IF NOT EXISTS idx_purchase_pending_items_source ON purchase_pending_items(source_name);
       CREATE INDEX IF NOT EXISTS idx_order_stage_sequences_activity ON order_stage_sequences(activity_key, sequence_number);
       CREATE INDEX IF NOT EXISTS idx_quality_alerts_sku ON quality_alerts(sku);
       CREATE INDEX IF NOT EXISTS idx_quality_alerts_customer ON quality_alerts(customer);
@@ -843,6 +863,29 @@ class LocalDatabase {
     for (const [reason, name] of defaults) {
       insert.run(randomToken(12), reason, name, now, now);
     }
+  }
+
+  ensurePurchasePendingItemColumns() {
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS purchase_pending_items (
+        id TEXT PRIMARY KEY,
+        import_batch_id TEXT NOT NULL DEFAULT '',
+        source_name TEXT NOT NULL DEFAULT '',
+        row_index INTEGER NOT NULL DEFAULT 0,
+        data_json TEXT NOT NULL DEFAULT '{}',
+        item_status TEXT NOT NULL DEFAULT 'pending',
+        resolution_note TEXT NOT NULL DEFAULT '',
+        resolved_by TEXT NOT NULL DEFAULT '',
+        resolved_at TEXT NOT NULL DEFAULT '',
+        imported_by TEXT NOT NULL DEFAULT '',
+        imported_at TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+    `);
+    this.db.exec('CREATE INDEX IF NOT EXISTS idx_purchase_pending_items_status ON purchase_pending_items(item_status);');
+    this.db.exec('CREATE INDEX IF NOT EXISTS idx_purchase_pending_items_imported_at ON purchase_pending_items(imported_at);');
+    this.db.exec('CREATE INDEX IF NOT EXISTS idx_purchase_pending_items_source ON purchase_pending_items(source_name);');
   }
 
   ensureStageSequenceColumns() {
@@ -3060,6 +3103,117 @@ class LocalDatabase {
     return result.changes > 0;
   }
 
+  listPurchasePendingItems(filters = {}) {
+    const clauses = [];
+    const params = [];
+    const status = String(filters.status || '').trim();
+
+    if (status === 'pending' || status === 'resolved') {
+      clauses.push('item_status = ?');
+      params.push(status);
+    }
+
+    const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
+
+    return this.db
+      .prepare(`
+        SELECT id, import_batch_id, source_name, row_index, data_json, item_status,
+          resolution_note, resolved_by, resolved_at, imported_by, imported_at, created_at, updated_at
+        FROM purchase_pending_items
+        ${where}
+        ORDER BY item_status = 'resolved' ASC, imported_at DESC, row_index ASC, created_at DESC
+      `)
+      .all(...params)
+      .map(mapPurchasePendingItem);
+  }
+
+  findPurchasePendingItemById(id) {
+    const row = this.db
+      .prepare(`
+        SELECT id, import_batch_id, source_name, row_index, data_json, item_status,
+          resolution_note, resolved_by, resolved_at, imported_by, imported_at, created_at, updated_at
+        FROM purchase_pending_items
+        WHERE id = ?
+      `)
+      .get(String(id || ''));
+
+    return mapPurchasePendingItem(row);
+  }
+
+  replacePurchasePendingItems(rows, sourceName = '', actor = '') {
+    const cleanRows = sanitizePurchasePendingRows(rows);
+    const cleanSourceName = String(sourceName || '').trim().slice(0, 240);
+    const cleanActor = String(actor || '').trim();
+    const now = new Date().toISOString();
+    const importBatchId = randomToken(12);
+
+    this.db.exec('BEGIN');
+    try {
+      this.db.prepare("DELETE FROM purchase_pending_items WHERE item_status = 'pending'").run();
+
+      const insert = this.db.prepare(`
+        INSERT INTO purchase_pending_items (
+          id, import_batch_id, source_name, row_index, data_json, item_status,
+          resolution_note, resolved_by, resolved_at, imported_by, imported_at, created_at, updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, 'pending', '', '', '', ?, ?, ?, ?)
+      `);
+
+      cleanRows.forEach((row, index) => {
+        insert.run(
+          randomToken(12),
+          importBatchId,
+          cleanSourceName,
+          index + 1,
+          JSON.stringify(row),
+          cleanActor,
+          now,
+          now,
+          now
+        );
+      });
+
+      this.db.exec('COMMIT');
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
+
+    return this.listPurchasePendingItems();
+  }
+
+  resolvePurchasePendingItem(id, note = '', actor = '') {
+    const item = this.findPurchasePendingItemById(id);
+    if (!item) {
+      return null;
+    }
+
+    const cleanNote = sanitizePurchasePendingResolutionNote(note);
+    const now = new Date().toISOString();
+
+    this.db
+      .prepare(`
+        UPDATE purchase_pending_items
+        SET item_status = 'resolved',
+          resolution_note = ?,
+          resolved_by = ?,
+          resolved_at = CASE WHEN trim(resolved_at) = '' THEN ? ELSE resolved_at END,
+          updated_at = ?
+        WHERE id = ?
+      `)
+      .run(cleanNote, String(actor || '').trim(), now, now, String(id || ''));
+
+    return this.findPurchasePendingItemById(id);
+  }
+
+  clearPurchasePendingItems(scope = 'pending') {
+    const sql = scope === 'all'
+      ? 'DELETE FROM purchase_pending_items'
+      : "DELETE FROM purchase_pending_items WHERE item_status = 'pending'";
+    const result = this.db.prepare(sql).run();
+    return result.changes || 0;
+  }
+
   getQualityRncState() {
     const row = this.db
       .prepare('SELECT payload FROM quality_rnc_state WHERE id = ?')
@@ -4118,6 +4272,37 @@ function mapPcpPendingMotive(row) {
   };
 }
 
+function mapPurchasePendingItem(row) {
+  if (!row) {
+    return null;
+  }
+
+  let data = {};
+  try {
+    data = JSON.parse(row.data_json || '{}');
+  } catch (error) {
+    data = {};
+  }
+
+  const itemStatus = row.item_status === 'resolved' ? 'resolved' : 'pending';
+  return {
+    ...data,
+    id: row.id,
+    importBatchId: row.import_batch_id || '',
+    sourceName: row.source_name || '',
+    rowIndex: Number(row.row_index) || 0,
+    itemStatus,
+    itemStatusLabel: itemStatus === 'resolved' ? 'Baixado' : 'Pendente',
+    resolutionNote: row.resolution_note || '',
+    resolvedBy: row.resolved_by || '',
+    resolvedAt: row.resolved_at || '',
+    importedBy: row.imported_by || '',
+    importedAt: row.imported_at || '',
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
+}
+
 function sequencingItemFromOrder(order, stage, sequence) {
   const priorityDate = order.productionDeliveryDate || order.originalDeliveryDate || order.entryDate || '';
   return {
@@ -4856,6 +5041,52 @@ function sanitizePcpPendingReason(value) {
     damaged: 'rework'
   };
   return aliases[reason] || '';
+}
+
+function sanitizePurchasePendingRows(rows) {
+  if (!Array.isArray(rows)) {
+    throw new Error('Informe as linhas importadas de pedidos de compras pendentes.');
+  }
+
+  return rows
+    .slice(0, 10000)
+    .map((item) => {
+      const row = item && typeof item === 'object' && !Array.isArray(item) ? item : {};
+      const output = {};
+      Object.entries(row).forEach(([key, value]) => {
+        const cleanKey = String(key || '').trim().slice(0, 140);
+        if (!cleanKey || purchasePendingMetaKeys().has(cleanKey)) return;
+        output[cleanKey] = String(value ?? '').trim().slice(0, 2000);
+      });
+      return output;
+    })
+    .filter((row) => Object.values(row).some((value) => String(value || '').trim()));
+}
+
+function purchasePendingMetaKeys() {
+  return new Set([
+    'id',
+    'importBatchId',
+    'sourceName',
+    'rowIndex',
+    'itemStatus',
+    'itemStatusLabel',
+    'resolutionNote',
+    'resolvedBy',
+    'resolvedAt',
+    'importedBy',
+    'importedAt',
+    'createdAt',
+    'updatedAt'
+  ]);
+}
+
+function sanitizePurchasePendingResolutionNote(value) {
+  const note = String(value || '').trim().slice(0, 1000);
+  if (!note) {
+    throw new Error('Informe a observacao/motivo da baixa.');
+  }
+  return note;
 }
 
 function sanitizeQualityRncState(input) {

@@ -3613,19 +3613,52 @@ type PurchasePendingState = {
   search: string;
 };
 
-export function PurchasePendingScreen({ user }: ModuleProps) {
+export function PurchasePendingScreen({ user, realtimeRefreshKey = 0 }: ModuleProps) {
   const editable = canEdit(user, 'pcp');
   const [state, setState] = useState<PurchasePendingState>(() => loadPurchasePendingState(user.id));
+  const [resolvingRow, setResolvingRow] = useState<Row | null>(null);
+  const [resolutionNote, setResolutionNote] = useState('');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
   useEffect(() => {
-    setState(loadPurchasePendingState(user.id));
+    setState((current) => ({ ...current, ...loadPurchasePendingState(user.id), rows: current.rows }));
   }, [user.id]);
 
-  function persistState(next: PurchasePendingState) {
-    setState(next);
-    writeLocalPreference(purchasePendingStorageKey(user.id), next);
+  useEffect(() => {
+    let ignore = false;
+    api<{ items?: Row[] }>('/api/purchase-pending')
+      .then((payload) => {
+        if (ignore) return;
+        const rows = normalizePurchasePendingRows(payload.items);
+        setState((current) => ({
+          ...current,
+          rows,
+          sourceName: purchasePendingCurrentSourceName(rows),
+          importedAt: purchasePendingCurrentImportedAt(rows)
+        }));
+      })
+      .catch((err) => {
+        if (!ignore) setError(err.message);
+      });
+    return () => {
+      ignore = true;
+    };
+  }, [realtimeRefreshKey]);
+
+  function persistSearch(value: string) {
+    setState((current) => ({ ...current, search: value }));
+    writeLocalPreference(purchasePendingStorageKey(user.id), { search: value });
+  }
+
+  function applyServerRows(rows: Row[]) {
+    const normalizedRows = normalizePurchasePendingRows(rows);
+    setState((current) => ({
+      ...current,
+      rows: normalizedRows,
+      sourceName: purchasePendingCurrentSourceName(normalizedRows),
+      importedAt: purchasePendingCurrentImportedAt(normalizedRows)
+    }));
   }
 
   async function importFile(event: ChangeEvent<HTMLInputElement>) {
@@ -3641,12 +3674,11 @@ export function PurchasePendingScreen({ user }: ModuleProps) {
         setError('Nenhuma linha valida foi encontrada no arquivo importado.');
         return;
       }
-      persistState({
-        ...state,
-        rows: parsedRows,
-        sourceName: file.name,
-        importedAt: new Date().toISOString()
+      const payload = await api<{ items?: Row[] }>('/api/purchase-pending/import', {
+        method: 'POST',
+        body: { sourceName: file.name, rows: parsedRows }
       });
+      applyServerRows(payload.items || []);
       setSuccess(`${parsedRows.length} pedido(s) de compra pendente(s) importado(s).`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Falha ao importar a tabela.');
@@ -3654,14 +3686,17 @@ export function PurchasePendingScreen({ user }: ModuleProps) {
   }
 
   function updateSearch(value: string) {
-    persistState({ ...state, search: value });
+    persistSearch(value);
   }
 
-  function clearRows() {
+  async function clearRows() {
     if (!window.confirm('Limpar a tabela importada de pedidos de compras pendentes?')) return;
-    persistState({ rows: [], sourceName: '', importedAt: '', search: state.search });
-    setSuccess('Tabela de compras pendentes limpa.');
-    setError('');
+    setSuccess('');
+    await runAction(setError, async () => {
+      const payload = await api<{ items?: Row[]; removed?: number }>('/api/purchase-pending', { method: 'DELETE' });
+      applyServerRows(payload.items || []);
+      setSuccess(`${formatInteger(payload.removed || 0)} pedido(s) pendente(s) removido(s). Baixas anteriores preservadas.`);
+    });
   }
 
   function exportCsv() {
@@ -3675,6 +3710,29 @@ export function PurchasePendingScreen({ user }: ModuleProps) {
     downloadDataUrl(dataUrl, `pedidos-compras-pendentes-${dateInputValue(new Date())}.csv`);
   }
 
+  function openResolve(row: Row) {
+    setResolvingRow(row);
+    setResolutionNote('');
+    setError('');
+    setSuccess('');
+  }
+
+  async function submitResolve(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!resolvingRow) return;
+    setSuccess('');
+    await runAction(setError, async () => {
+      const payload = await api<{ items?: Row[] }>(`/api/purchase-pending/${encodeURIComponent(String(resolvingRow.id || ''))}/resolve`, {
+        method: 'PATCH',
+        body: { note: resolutionNote }
+      });
+      applyServerRows(payload.items || []);
+      setResolvingRow(null);
+      setResolutionNote('');
+      setSuccess('Pedido de compra pendente baixado com historico.');
+    });
+  }
+
   const filteredRows = useMemo(() => filterRows(state.rows, state.search), [state.rows, state.search]);
   const metrics = purchasePendingMetrics(state.rows);
   const columns = purchasePendingColumns(state.rows);
@@ -3683,9 +3741,10 @@ export function PurchasePendingScreen({ user }: ModuleProps) {
     <ModuleFrame title="Pedidos de compras pendentes" subtitle="Importacao e consulta inicial de tabela externa de compras." error={error}>
       {success && <p className="success-message">{success}</p>}
       <div className="module-metrics compact">
-        <Metric label="Itens importados" value={formatInteger(state.rows.length)} />
+        <Metric label="Pendentes" value={formatInteger(metrics.pending)} />
+        <Metric label="Baixados" value={formatInteger(metrics.resolved)} />
         <Metric label="Fornecedores" value={formatInteger(metrics.suppliers)} />
-        <Metric label="Datas vencidas" value={formatInteger(metrics.overdue)} />
+        <Metric label="Entregas atrasadas" value={formatInteger(metrics.overdue)} />
         <Metric label="Sem pedido de compra" value={formatInteger(metrics.missingPurchaseOrder)} />
       </div>
 
@@ -3708,12 +3767,51 @@ export function PurchasePendingScreen({ user }: ModuleProps) {
         </div>
       </section>
 
+      {resolvingRow && (
+        <section className="module-panel purchase-resolve-panel">
+          <div className="panel-title">
+            <div>
+              <h3>Dar baixa em pedido pendente</h3>
+              <span>{purchasePendingRowLabel(resolvingRow)}</span>
+            </div>
+            <div className="panel-actions">
+              <button className="btn" type="button" onClick={() => setResolvingRow(null)}><IconText name="close">Cancelar</IconText></button>
+            </div>
+          </div>
+          <form className="admin-form" onSubmit={submitResolve}>
+            <label className="field">
+              <span>Observacao / motivo da baixa</span>
+              <textarea
+                className="input"
+                rows={3}
+                value={resolutionNote}
+                onChange={(event) => setResolutionNote(event.target.value)}
+                placeholder="Ex.: Material recebido, compra cancelada, item substituido ou resolvido fora do fluxo."
+                required
+              />
+            </label>
+            <div className="admin-form-actions">
+              <button className="btn primary" type="submit"><IconText name="check">Confirmar baixa</IconText></button>
+            </div>
+          </form>
+        </section>
+      )}
+
       <section className="module-panel">
         <div className="panel-title">
           <h3>Consulta de compras pendentes</h3>
           <span>{filteredRows.length} registro(s)</span>
         </div>
-        <DataTable rows={filteredRows} columns={columns} rowClass={(row) => purchasePendingRowClass(row)} />
+        <DataTable
+          rows={filteredRows}
+          columns={columns}
+          rowClass={(row) => purchasePendingRowClass(row)}
+          actions={editable ? (row) => (
+            String(row.itemStatus || 'pending') === 'resolved'
+              ? <span className="status-pill neutral">Baixado</span>
+              : <button className="btn" type="button" onClick={() => openResolve(row)}><IconText name="check">Dar baixa</IconText></button>
+          ) : undefined}
+        />
       </section>
     </ModuleFrame>
   );
@@ -7872,9 +7970,9 @@ function writeLocalPreference(key: string, value: unknown) {
 function loadPurchasePendingState(userId: string): PurchasePendingState {
   const rawState = asRow(readLocalPreference(purchasePendingStorageKey(userId)));
   return {
-    rows: normalizePurchasePendingRows(rawState.rows),
-    sourceName: String(rawState.sourceName || ''),
-    importedAt: String(rawState.importedAt || ''),
+    rows: [],
+    sourceName: '',
+    importedAt: '',
     search: String(rawState.search || '')
   };
 }
@@ -7888,9 +7986,15 @@ function normalizePurchasePendingRows(value: unknown): Row[] {
   return value
     .map((item, index) => {
       const row = asRow(item);
-      return { ...row, id: String(row.id || `purchase-pending-${index + 1}`) };
+      const itemStatus = String(row.itemStatus || 'pending') === 'resolved' ? 'resolved' : 'pending';
+      return {
+        ...row,
+        id: String(row.id || `purchase-pending-${index + 1}`),
+        itemStatus,
+        itemStatusLabel: itemStatus === 'resolved' ? 'Baixado' : 'Pendente'
+      };
     })
-    .filter((row) => Object.entries(row).some(([key, cell]) => key !== 'id' && String(cell || '').trim()));
+    .filter((row) => Object.entries(row).some(([key, cell]) => !purchasePendingMetaKeys().has(key) && String(cell || '').trim()));
 }
 
 function parsePurchasePendingImport(text: string): Row[] {
@@ -7972,46 +8076,55 @@ function uniqueColumnLabels(labels: string[]) {
 }
 
 function purchasePendingColumns(rows: Row[]): Column[] {
-  const keys = rows.flatMap((row) => Object.keys(row).filter((key) => key !== 'id'));
+  const keys = rows.flatMap((row) => Object.keys(row).filter((key) => !purchasePendingMetaKeys().has(key)));
   const orderedKeys = Array.from(new Set(keys));
   return orderedKeys.length
-    ? orderedKeys.map((key) => ({ key, label: key }))
+    ? [
+      ...orderedKeys.map((key) => ({ key, label: key })),
+      { key: 'itemStatusLabel', label: 'Situacao' },
+      { key: 'resolvedBy', label: 'Baixado por' },
+      { key: 'resolvedAt', label: 'Baixado em', format: formatDateTime },
+      { key: 'resolutionNote', label: 'Obs. baixa' }
+    ]
     : [
       { key: 'Fornecedor', label: 'Fornecedor' },
       { key: 'Pedido de compra', label: 'Pedido de compra' },
       { key: 'Codigo', label: 'Codigo' },
       { key: 'Descricao', label: 'Descricao' },
       { key: 'Quantidade', label: 'Quantidade' },
-      { key: 'Data prevista', label: 'Data prevista' },
-      { key: 'Status', label: 'Status' }
+      { key: 'Data entrega prevista', label: 'Data entrega prevista' },
+      { key: 'Status', label: 'Status' },
+      { key: 'itemStatusLabel', label: 'Situacao' }
     ];
 }
 
 function purchasePendingMetrics(rows: Row[]) {
   const supplierKey = findPurchasePendingKey(rows, ['fornecedor', 'supplier', 'cliente']);
   const purchaseOrderKey = findPurchasePendingKey(rows, ['pedido de compra', 'pedido compra', 'purchase order', 'pc']);
+  const pendingRows = rows.filter((row) => String(row.itemStatus || 'pending') !== 'resolved');
   return {
-    suppliers: new Set(rows.map((row) => String(row[supplierKey] || '').trim()).filter(Boolean)).size,
-    overdue: rows.filter((row) => purchasePendingIsOverdue(row)).length,
+    pending: pendingRows.length,
+    resolved: rows.length - pendingRows.length,
+    suppliers: new Set(pendingRows.map((row) => String(row[supplierKey] || '').trim()).filter(Boolean)).size,
+    overdue: pendingRows.filter((row) => purchasePendingIsOverdue(row)).length,
     missingPurchaseOrder: purchaseOrderKey
-      ? rows.filter((row) => !String(row[purchaseOrderKey] || '').trim()).length
+      ? pendingRows.filter((row) => !String(row[purchaseOrderKey] || '').trim()).length
       : 0
   };
 }
 
 function purchasePendingIsOverdue(row: Row) {
+  if (String(row.itemStatus || 'pending') === 'resolved') return false;
   const today = dateInputValue(new Date());
-  return Object.entries(row).some(([key, value]) => {
-    if (!normalizeText(key).match(/data|prazo|previs|entrega/)) return false;
-    const text = normalizePurchasePendingDate(value);
-    return Boolean(text && text < today);
-  });
+  const deliveryKey = purchasePendingExpectedDeliveryKey(row);
+  const text = deliveryKey ? normalizePurchasePendingDate(row[deliveryKey]) : '';
+  return Boolean(text && text < today);
 }
 
 function normalizePurchasePendingDate(value: unknown) {
   const text = String(value || '').trim();
   if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
-  const match = text.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/);
+  const match = text.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})(?:\s|$)/);
   if (!match) return '';
   const day = match[1].padStart(2, '0');
   const month = match[2].padStart(2, '0');
@@ -8020,12 +8133,62 @@ function normalizePurchasePendingDate(value: unknown) {
 }
 
 function findPurchasePendingKey(rows: Row[], needles: string[]) {
-  const keys = Array.from(new Set(rows.flatMap((row) => Object.keys(row))));
-  return keys.find((key) => needles.some((needle) => normalizeText(key).includes(needle))) || '';
+  const keys = Array.from(new Set(rows.flatMap((row) => Object.keys(row).filter((key) => !purchasePendingMetaKeys().has(key)))));
+  return keys.find((key) => needles.some((needle) => normalizeText(key).includes(normalizeText(needle)))) || '';
 }
 
 function purchasePendingRowClass(row: Row) {
+  if (String(row.itemStatus || 'pending') === 'resolved') return 'row-muted';
   return purchasePendingIsOverdue(row) ? 'row-danger' : '';
+}
+
+function purchasePendingExpectedDeliveryKey(row: Row) {
+  const keys = Object.keys(row).filter((key) => !purchasePendingMetaKeys().has(key));
+  return keys.find((key) => normalizeText(key).replace(/\s+/g, ' ').trim() === 'data entrega prevista')
+    || keys.find((key) => normalizeText(key).includes('data entrega prevista'))
+    || '';
+}
+
+function purchasePendingCurrentSourceName(rows: Row[]) {
+  const pending = rows.find((row) => String(row.itemStatus || 'pending') !== 'resolved');
+  return String((pending || rows[0] || {}).sourceName || '');
+}
+
+function purchasePendingCurrentImportedAt(rows: Row[]) {
+  const pending = rows.find((row) => String(row.itemStatus || 'pending') !== 'resolved');
+  return String((pending || rows[0] || {}).importedAt || '');
+}
+
+function purchasePendingRowLabel(row: Row) {
+  const preferredKeys = [
+    findPurchasePendingKey([row], ['pedido de compra', 'pedido compra', 'purchase order', 'pc']),
+    findPurchasePendingKey([row], ['fornecedor', 'supplier', 'cliente']),
+    findPurchasePendingKey([row], ['codigo', 'código']),
+    findPurchasePendingKey([row], ['descricao', 'descrição'])
+  ].filter(Boolean);
+  for (const key of preferredKeys) {
+    const value = String(row[key] || '').trim();
+    if (value) return value;
+  }
+  return String(row.id || 'Pedido pendente');
+}
+
+function purchasePendingMetaKeys() {
+  return new Set([
+    'id',
+    'importBatchId',
+    'sourceName',
+    'rowIndex',
+    'itemStatus',
+    'itemStatusLabel',
+    'resolutionNote',
+    'resolvedBy',
+    'resolvedAt',
+    'importedBy',
+    'importedAt',
+    'createdAt',
+    'updatedAt'
+  ]);
 }
 
 function isPlainPreference(value: unknown): value is Record<string, unknown> {
