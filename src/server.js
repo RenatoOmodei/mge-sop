@@ -1277,7 +1277,7 @@ async function handleApi(context) {
       action: 'Configuracao APS salva',
       entityType: 'APS',
       entityLabel: 'Cadastros APS',
-      details: `${config.operators.length} operadores, ${config.workCenters.length} centros, ${config.operations.length} operacoes`
+      details: `${config.operators.length} operadores, ${config.workCenters.length} centros, ${config.operations.length} operacoes, ${(config.timeRecords || []).length} tempos aprendidos`
     });
     broadcastRealtime(server, ['aps', 'admin', 'reports']);
     sendJson(res, 200, { config });

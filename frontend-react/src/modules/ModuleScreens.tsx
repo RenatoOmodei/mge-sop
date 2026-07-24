@@ -231,6 +231,7 @@ type ApsSettings = {
   lunchMinutes: number;
   priorityRule: 'EDD' | 'MANUAL';
   calendarDays: ApsCalendarDay[];
+  timeLearningEnabled: boolean;
 };
 type ApsCalendarDay = {
   date: string;
@@ -276,11 +277,53 @@ type ApsOperation = {
   maxOperators: number;
   allowedCenters: string[];
 };
+type ApsTimeReferenceType = 'productionOrder' | 'salesOrder';
+type ApsTimeRecord = {
+  id: string;
+  referenceType: ApsTimeReferenceType;
+  reference: string;
+  orderNumber: string;
+  productionOrder: string;
+  operationCode: string;
+  productLine: string;
+  capacity: string;
+  quantity: number;
+  setupHours: number;
+  processHours: number;
+  note: string;
+  recordedAt: string;
+};
+type ApsLearnedTimeRow = {
+  key: string;
+  productLine: string;
+  capacity: string;
+  operationCode: string;
+  operationLabel: string;
+  samples: number;
+  setupHours: number;
+  processHoursPerUnit: number;
+  averageQuantity: number;
+  confidence: string;
+};
+type ApsTimeModelBucket = {
+  key: string;
+  productLine: string;
+  capacity: string;
+  operationCode: string;
+  samples: number;
+  setupHours: number;
+  processHoursPerUnit: number;
+  averageQuantity: number;
+  setupTotal: number;
+  processPerUnitTotal: number;
+  quantityTotal: number;
+};
 type ApsConfig = {
   settings: ApsSettings;
   operators: ApsOperator[];
   workCenters: ApsWorkCenter[];
   operations: ApsOperation[];
+  timeRecords: ApsTimeRecord[];
 };
 type ApsUiState = {
   startDate: string;
@@ -310,7 +353,10 @@ type ApsTask = Row & {
   routeRank: number;
   dueDate: string;
   manualSequence: number;
+  estimatedSetupHours: number;
   estimatedHours: number;
+  timeSource: string;
+  timeSamples: number;
   priority: number;
 };
 type ApsScheduleRow = ApsTask & {
@@ -4277,6 +4323,10 @@ export function ApsScreen({ user, realtimeRefreshKey = 0, configFocus }: ModuleP
   const sequencing = (aps?.sequencing || {}) as Row;
   const activities = Array.isArray(sequencing.activities) ? sequencing.activities as Row[] : [];
   const orders = Array.isArray(aps?.orders) ? aps.orders as Row[] : [];
+  const learnedTimeRows = useMemo(
+    () => buildApsLearnedTimeRows(config.timeRecords, config.operations),
+    [config.timeRecords, config.operations]
+  );
   const canEditAps = canEdit(user, 'aps');
   const runConfig = useMemo(() => ({
     ...config,
@@ -4317,10 +4367,27 @@ export function ApsScreen({ user, realtimeRefreshKey = 0, configFocus }: ModuleP
     updateConfig((current) => ({ ...current, settings: { ...current.settings, ...patch } }));
   }
 
-  function updateOperation(index: number, patch: Partial<ApsOperation>) {
+  function saveOperation(index: number, operation: ApsOperation) {
     updateConfig((current) => ({
       ...current,
-      operations: current.operations.map((operation, rowIndex) => (rowIndex === index ? { ...operation, ...patch } : operation))
+      operations: current.operations.map((row, rowIndex) => (rowIndex === index ? normalizeApsOperation(operation) : row))
+    }));
+  }
+
+  function saveTimeRecord(index: number | null, record: ApsTimeRecord) {
+    updateConfig((current) => {
+      const cleanRecord = normalizeApsTimeRecord(record);
+      const timeRecords = index !== null && current.timeRecords[index]
+        ? current.timeRecords.map((row, rowIndex) => (rowIndex === index ? cleanRecord : row))
+        : [...current.timeRecords, cleanRecord];
+      return { ...current, timeRecords };
+    });
+  }
+
+  function removeTimeRecord(id: string) {
+    updateConfig((current) => ({
+      ...current,
+      timeRecords: current.timeRecords.filter((record) => record.id !== id)
     }));
   }
 
@@ -4525,6 +4592,7 @@ export function ApsScreen({ user, realtimeRefreshKey = 0, configFocus }: ModuleP
           { key: 'endAt', label: 'Fim', format: (value) => formatLocalDateTime(value as Date) },
           { key: 'setupHours', label: 'Setup h', format: formatNumber },
           { key: 'processHours', label: 'Proc. h', format: formatNumber },
+          { key: 'timeSource', label: 'Base tempo' },
           { key: 'queueHours', label: 'Fila h', format: formatNumber },
           { key: 'dueDate', label: 'Prometida', format: formatDate },
           { key: 'delayDays', label: 'Atraso', format: formatInteger }
@@ -4596,12 +4664,26 @@ export function ApsScreen({ user, realtimeRefreshKey = 0, configFocus }: ModuleP
           </label>
         </div>}
 
+        {!configFocus && (
+          <ApsTimeLearningEditor
+            records={config.timeRecords}
+            learnedRows={learnedTimeRows}
+            orders={orders}
+            operations={config.operations}
+            canEdit={canEditAps}
+            enabled={config.settings.timeLearningEnabled}
+            onToggleEnabled={(enabled) => updateSettings({ timeLearningEnabled: enabled })}
+            onSave={saveTimeRecord}
+            onRemove={removeTimeRecord}
+          />
+        )}
+
         {showApsCalendar && (
           <ApsProductiveCalendarEditor settings={config.settings} canEdit={canEditAps} onUpdate={updateSettings} />
         )}
 
         {showApsOperations && (
-          <ApsOperationsEditor operations={config.operations} centers={config.workCenters} canEdit={canEditAps} onUpdate={updateOperation} />
+          <ApsOperationsEditor operations={config.operations} centers={config.workCenters} canEdit={canEditAps} onSave={saveOperation} />
         )}
         {showApsCenters && (
           <ApsCentersEditor centers={config.workCenters} canEdit={canEditAps} onSave={saveWorkCenter} onRemove={removeWorkCenter} />
@@ -4780,66 +4862,371 @@ function ApsOperationsEditor({
   operations,
   centers,
   canEdit,
-  onUpdate
+  onSave
 }: {
   operations: ApsOperation[];
   centers: ApsWorkCenter[];
   canEdit: boolean;
-  onUpdate: (index: number, patch: Partial<ApsOperation>) => void;
+  onSave: (index: number, operation: ApsOperation) => void;
 }) {
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const [draft, setDraft] = useState<ApsOperation | null>(null);
+
+  function startEdit(index: number) {
+    setEditingIndex(index);
+    setDraft({ ...operations[index], allowedCenters: [...operations[index].allowedCenters] });
+  }
+
+  function updateDraft(patch: Partial<ApsOperation>) {
+    setDraft((current) => current ? normalizeApsOperation({ ...current, ...patch }) : current);
+  }
+
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (editingIndex === null || !draft) return;
+    onSave(editingIndex, draft);
+    setEditingIndex(null);
+    setDraft(null);
+  }
+
   return (
-    <div className="generic-table-wrap aps-config-table-wrap">
-      <table className="generic-table aps-config-table">
-        <thead>
-          <tr>
-            <th>Seq.</th>
-            <th>Operacao/status</th>
-            <th>Tipo</th>
-            <th>Setup h</th>
-            <th>Processo h</th>
-            <th>Lote</th>
-            <th>Operadores</th>
-            <th>Centros permitidos</th>
-          </tr>
-        </thead>
-        <tbody>
-          {operations.map((operation, index) => (
-            <tr key={operation.code}>
-              <td>{formatInteger(operation.sortOrder)}</td>
-              <td title={operation.code}>
-                <strong>{operation.description}</strong>
-                <small>{operation.flowType === 'deviation' ? 'Desvio' : 'Fluxo normal'}</small>
-              </td>
-              <td>{operation.category === 'production' ? 'Producao' : 'Auxiliar'}</td>
-              <td><input className="input table-inline-input" type="number" min="0" step="0.25" value={operation.setupHours} disabled={!canEdit} onChange={(event) => onUpdate(index, { setupHours: toNumber(event.target.value, 0) })} /></td>
-              <td><input className="input table-inline-input" type="number" min="0" step="0.25" value={operation.processHours} disabled={!canEdit} onChange={(event) => onUpdate(index, { processHours: toNumber(event.target.value, 1) })} /></td>
-              <td><input className="input table-inline-input" type="number" min="1" step="1" value={operation.lotSize} disabled={!canEdit} onChange={(event) => onUpdate(index, { lotSize: toInteger(event.target.value, 1) })} /></td>
-              <td>
-                <div className="inline-number-pair">
-                  <input className="input table-inline-input" aria-label="Operadores minimos" type="number" min="1" step="1" value={operation.minOperators} disabled={!canEdit} onChange={(event) => onUpdate(index, { minOperators: toInteger(event.target.value, 1) })} />
-                  <input className="input table-inline-input" aria-label="Operadores maximos" type="number" min="1" step="1" value={operation.maxOperators} disabled={!canEdit} onChange={(event) => onUpdate(index, { maxOperators: toInteger(event.target.value, 1) })} />
-                </div>
-              </td>
-              <td>
-                <select
-                  className="input aps-multi-select"
-                  multiple
-                  value={operation.allowedCenters}
-                  disabled={!canEdit}
-                  onChange={(event) => onUpdate(index, { allowedCenters: selectedOptionValues(event.currentTarget).map((value) => value.toUpperCase()) })}
-                >
-                  {centers.map((center) => <option key={center.code} value={center.code}>{center.code} - {center.description}</option>)}
-                </select>
-              </td>
-            </tr>
-          ))}
-          {!operations.length && (
+    <>
+      {draft && (
+        <form className="aps-operation-form" onSubmit={submit}>
+          <div className="panel-title">
+            <h3>Editar operacao APS</h3>
+            <span>{draft.description || draft.code}</span>
+          </div>
+          <div className="aps-operation-form-grid">
+            <label className="field">
+              <span>Codigo</span>
+              <input className="input" value={draft.code} disabled />
+            </label>
+            <label className="field aps-operation-span-2">
+              <span>Operacao / status</span>
+              <input className="input" value={draft.description} disabled />
+            </label>
+            <label className="field">
+              <span>Sequencia</span>
+              <input className="input" type="number" value={draft.sortOrder} disabled />
+            </label>
+            <label className="field">
+              <span>Tipo</span>
+              <input className="input" value={draft.category === 'production' ? 'Producao' : 'Auxiliar'} disabled />
+            </label>
+            <label className="field">
+              <span>Fluxo</span>
+              <input className="input" value={draft.flowType === 'deviation' ? 'Desvio' : 'Normal'} disabled />
+            </label>
+            <label className="field">
+              <span>Setup h</span>
+              <input className="input" type="number" min="0" step="0.25" value={draft.setupHours} disabled={!canEdit} onChange={(event) => updateDraft({ setupHours: toNumber(event.target.value, 0) })} />
+            </label>
+            <label className="field">
+              <span>Processo h padrao</span>
+              <input className="input" type="number" min="0" step="0.25" value={draft.processHours} disabled={!canEdit} onChange={(event) => updateDraft({ processHours: toNumber(event.target.value, 1) })} />
+            </label>
+            <label className="field">
+              <span>Lote</span>
+              <input className="input" type="number" min="1" step="1" value={draft.lotSize} disabled={!canEdit} onChange={(event) => updateDraft({ lotSize: toInteger(event.target.value, 1) })} />
+            </label>
+            <label className="field">
+              <span>Operadores min.</span>
+              <input className="input" type="number" min="1" step="1" value={draft.minOperators} disabled={!canEdit} onChange={(event) => updateDraft({ minOperators: toInteger(event.target.value, 1) })} />
+            </label>
+            <label className="field">
+              <span>Operadores max.</span>
+              <input className="input" type="number" min="1" step="1" value={draft.maxOperators} disabled={!canEdit} onChange={(event) => updateDraft({ maxOperators: toInteger(event.target.value, 1) })} />
+            </label>
+            <label className="field aps-operation-span-2">
+              <span>Centros permitidos</span>
+              <select
+                className="input aps-multi-select"
+                multiple
+                value={draft.allowedCenters}
+                disabled={!canEdit}
+                onChange={(event) => updateDraft({ allowedCenters: selectedOptionValues(event.currentTarget).map((value) => value.toUpperCase()) })}
+              >
+                {centers.map((center) => <option key={center.code} value={center.code}>{center.code} - {center.description}</option>)}
+              </select>
+            </label>
+          </div>
+          <div className="admin-form-actions">
+            <button className="btn primary" type="submit" disabled={!canEdit}><IconText name="save">Salvar operacao</IconText></button>
+            <button className="btn" type="button" onClick={() => { setDraft(null); setEditingIndex(null); }}><IconText name="close">Cancelar</IconText></button>
+          </div>
+        </form>
+      )}
+      <div className="generic-table-wrap aps-config-table-wrap">
+        <table className="generic-table aps-config-table">
+          <thead>
             <tr>
-              <td className="empty" colSpan={8}>Cadastre status de producao para gerar operacoes APS.</td>
+              <th>Seq.</th>
+              <th>Operacao/status</th>
+              <th>Tipo</th>
+              <th>Setup h</th>
+              <th>Processo h</th>
+              <th>Lote</th>
+              <th>Operadores</th>
+              <th>Centros permitidos</th>
+              {canEdit && <th>Acoes</th>}
             </tr>
-          )}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {operations.map((operation, index) => (
+              <tr key={operation.code}>
+                <td>{formatInteger(operation.sortOrder)}</td>
+                <td title={operation.code}>
+                  <strong>{operation.description}</strong>
+                  <small>{operation.flowType === 'deviation' ? 'Desvio' : 'Fluxo normal'}</small>
+                </td>
+                <td>{operation.category === 'production' ? 'Producao' : 'Auxiliar'}</td>
+                <td>{formatNumber(operation.setupHours)}</td>
+                <td>{formatNumber(operation.processHours)}</td>
+                <td>{formatInteger(operation.lotSize)}</td>
+                <td>{formatInteger(operation.minOperators)} a {formatInteger(operation.maxOperators)}</td>
+                <td>{operation.allowedCenters.join(', ') || 'Todos'}</td>
+                {canEdit && (
+                  <td className="row-actions-cell">
+                    <button className="btn" type="button" onClick={() => startEdit(index)}><IconText name="edit">Editar</IconText></button>
+                  </td>
+                )}
+              </tr>
+            ))}
+            {!operations.length && (
+              <tr>
+                <td className="empty" colSpan={canEdit ? 9 : 8}>Cadastre status de producao para gerar operacoes APS.</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+}
+
+function ApsTimeLearningEditor({
+  records,
+  learnedRows,
+  orders,
+  operations,
+  canEdit,
+  enabled,
+  onToggleEnabled,
+  onSave,
+  onRemove
+}: {
+  records: ApsTimeRecord[];
+  learnedRows: ApsLearnedTimeRow[];
+  orders: Row[];
+  operations: ApsOperation[];
+  canEdit: boolean;
+  enabled: boolean;
+  onToggleEnabled: (enabled: boolean) => void;
+  onSave: (index: number | null, record: ApsTimeRecord) => void;
+  onRemove: (id: string) => void;
+}) {
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const [draft, setDraft] = useState<ApsTimeRecord | null>(null);
+  const orderOptions = useMemo(() => orders.filter((order) => String(order.itemType || 'production') === 'production'), [orders]);
+
+  function startNew() {
+    const base = nextApsTimeRecord(records, operations);
+    setEditingIndex(null);
+    setDraft(orderOptions[0] ? applyApsOrderToTimeRecord(base, orderOptions[0], base.referenceType) : base);
+  }
+
+  function startEdit(index: number) {
+    setEditingIndex(index);
+    setDraft({ ...records[index] });
+  }
+
+  function updateDraft(patch: Partial<ApsTimeRecord>) {
+    setDraft((current) => current ? normalizeApsTimeRecord({ ...current, ...patch }) : current);
+  }
+
+  function selectOrder(key: string) {
+    const order = findApsOrderByOptionKey(orderOptions, key);
+    setDraft((current) => current && order ? applyApsOrderToTimeRecord(current, order, current.referenceType) : current);
+  }
+
+  function changeReferenceType(value: string) {
+    const referenceType: ApsTimeReferenceType = value === 'productionOrder' ? 'productionOrder' : 'salesOrder';
+    setDraft((current) => {
+      if (!current) return current;
+      return normalizeApsTimeRecord({
+        ...current,
+        referenceType,
+        reference: referenceType === 'productionOrder' ? current.productionOrder : current.orderNumber
+      });
+    });
+  }
+
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!draft) return;
+    onSave(editingIndex, draft);
+    setEditingIndex(null);
+    setDraft(null);
+  }
+
+  return (
+    <div className="aps-learning-panel">
+      <div className="panel-title">
+        <div>
+          <h3>Tempos por OP/Pedido e aprendizado</h3>
+          <span>{records.length} apontamentos | {learnedRows.length} padroes por linha/capacidade</span>
+        </div>
+        <div className="panel-actions">
+          <label className="aps-learning-toggle">
+            <input type="checkbox" checked={enabled} disabled={!canEdit} onChange={(event) => onToggleEnabled(event.target.checked)} />
+            <span>Usar tempos aprendidos no APS</span>
+          </label>
+          {canEdit && <button className="btn primary" type="button" onClick={startNew}><IconText name="plus">Novo tempo</IconText></button>}
+        </div>
+      </div>
+
+      {draft && (
+        <form className="aps-time-form" onSubmit={submit}>
+          <div className="aps-time-form-grid">
+            <label className="field aps-operation-span-2">
+              <span>Pedido base</span>
+              <select className="input" value={apsOrderOptionKey(findApsOrderForTimeRecord(draft, orderOptions))} disabled={!canEdit} onChange={(event) => selectOrder(event.target.value)}>
+                <option value="">Selecionar pedido</option>
+                {orderOptions.map((order) => (
+                  <option key={apsOrderOptionKey(order)} value={apsOrderOptionKey(order)}>{apsOrderOptionLabel(order)}</option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              <span>Referencia</span>
+              <select className="input" value={draft.referenceType} disabled={!canEdit} onChange={(event) => changeReferenceType(event.target.value)}>
+                <option value="salesOrder">Pedido de venda</option>
+                <option value="productionOrder">Ordem de producao</option>
+              </select>
+            </label>
+            <label className="field">
+              <span>Numero referencia</span>
+              <input className="input" value={draft.reference} disabled={!canEdit} onChange={(event) => updateDraft({ reference: event.target.value })} required />
+            </label>
+            <label className="field">
+              <span>Operacao</span>
+              <select className="input" value={draft.operationCode} disabled={!canEdit} onChange={(event) => updateDraft({ operationCode: event.target.value })} required>
+                {operations.map((operation) => <option key={operation.code} value={operation.code}>{operation.description}</option>)}
+              </select>
+            </label>
+            <label className="field">
+              <span>Linha de produto</span>
+              <input className="input" value={draft.productLine} disabled={!canEdit} onChange={(event) => updateDraft({ productLine: event.target.value })} required />
+            </label>
+            <label className="field">
+              <span>Capacidade</span>
+              <input className="input" value={draft.capacity} disabled={!canEdit} onChange={(event) => updateDraft({ capacity: event.target.value })} required />
+            </label>
+            <label className="field">
+              <span>Quantidade</span>
+              <input className="input" type="number" min="1" step="1" value={draft.quantity} disabled={!canEdit} onChange={(event) => updateDraft({ quantity: toInteger(event.target.value, 1) })} />
+            </label>
+            <label className="field">
+              <span>Setup h real</span>
+              <input className="input" type="number" min="0" step="0.25" value={draft.setupHours} disabled={!canEdit} onChange={(event) => updateDraft({ setupHours: toNumber(event.target.value, 0) })} />
+            </label>
+            <label className="field">
+              <span>Processo h real</span>
+              <input className="input" type="number" min="0.1" step="0.25" value={draft.processHours} disabled={!canEdit} onChange={(event) => updateDraft({ processHours: toNumber(event.target.value, 1) })} required />
+            </label>
+            <label className="field aps-operation-span-2">
+              <span>Observacao</span>
+              <input className="input" value={draft.note} disabled={!canEdit} onChange={(event) => updateDraft({ note: event.target.value })} />
+            </label>
+          </div>
+          <div className="admin-form-actions">
+            <button className="btn primary" type="submit" disabled={!canEdit}><IconText name="save">Salvar tempo</IconText></button>
+            <button className="btn" type="button" onClick={() => { setDraft(null); setEditingIndex(null); }}><IconText name="close">Cancelar</IconText></button>
+          </div>
+        </form>
+      )}
+
+      <div className="split-grid aps-learning-grid">
+        <div className="generic-table-wrap aps-config-table-wrap">
+          <table className="generic-table aps-config-table">
+            <thead>
+              <tr>
+                <th>Referencia</th>
+                <th>Operacao</th>
+                <th>Linha/capacidade</th>
+                <th>Qtd.</th>
+                <th>Setup h</th>
+                <th>Processo h</th>
+                <th>Acoes</th>
+              </tr>
+            </thead>
+            <tbody>
+              {records.map((record, index) => (
+                <tr key={record.id}>
+                  <td>
+                    <strong>{record.reference || '-'}</strong>
+                    <small>{apsTimeReferenceTypeLabel(record.referenceType)}</small>
+                  </td>
+                  <td>{apsOperationLabel(record.operationCode, operations)}</td>
+                  <td>
+                    <strong>{record.productLine || '-'}</strong>
+                    <small>{apsCapacityDisplay(record.capacity)}</small>
+                  </td>
+                  <td>{formatInteger(record.quantity)}</td>
+                  <td>{formatNumber(record.setupHours)}</td>
+                  <td>{formatNumber(record.processHours)}</td>
+                  <td className="row-actions-cell">
+                    <div className="table-actions">
+                      {canEdit && <button className="btn" type="button" onClick={() => startEdit(index)}><IconText name="edit">Editar</IconText></button>}
+                      {canEdit && <button className="btn" type="button" onClick={() => onRemove(record.id)}><IconText name="trash">Excluir</IconText></button>}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              {!records.length && (
+                <tr>
+                  <td className="empty" colSpan={7}>Lance tempos reais por OP ou pedido para o APS aprender por linha de produto e capacidade.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="generic-table-wrap aps-config-table-wrap">
+          <table className="generic-table aps-config-table">
+            <thead>
+              <tr>
+                <th>Linha</th>
+                <th>Capacidade</th>
+                <th>Operacao</th>
+                <th>Amostras</th>
+                <th>Setup medio</th>
+                <th>Proc. medio/un.</th>
+                <th>Confianca</th>
+              </tr>
+            </thead>
+            <tbody>
+              {learnedRows.map((row) => (
+                <tr key={row.key}>
+                  <td>{row.productLine}</td>
+                  <td>{apsCapacityDisplay(row.capacity)}</td>
+                  <td>{row.operationLabel}</td>
+                  <td>{formatInteger(row.samples)}</td>
+                  <td>{formatNumber(row.setupHours)}</td>
+                  <td>{formatNumber(row.processHoursPerUnit)}</td>
+                  <td>{row.confidence}</td>
+                </tr>
+              ))}
+              {!learnedRows.length && (
+                <tr>
+                  <td className="empty" colSpan={7}>Sem padroes aprendidos ainda.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   );
 }
@@ -7759,7 +8146,8 @@ function defaultApsConfig(): ApsConfig {
       lunchStart: '12:00',
       lunchMinutes: 60,
       priorityRule: 'EDD',
-      calendarDays: []
+      calendarDays: [],
+      timeLearningEnabled: true
     },
     operators: [
       {
@@ -7801,7 +8189,8 @@ function defaultApsConfig(): ApsConfig {
         maxOperators: 1,
         allowedCenters: ['MONT']
       }
-    ]
+    ],
+    timeRecords: []
   };
 }
 
@@ -7822,7 +8211,8 @@ function normalizeApsConfig(value: unknown): ApsConfig {
       lunchStart: isTimeText(settings.lunchStart) ? String(settings.lunchStart) : defaults.settings.lunchStart,
       lunchMinutes: clampNumber(settings.lunchMinutes, 0, 240, defaults.settings.lunchMinutes),
       priorityRule: settings.priorityRule === 'MANUAL' ? 'MANUAL' : 'EDD',
-      calendarDays: arrayRows(settings.calendarDays).map((day) => normalizeApsCalendarDay(day, defaults.settings)).filter((day) => day.date)
+      calendarDays: arrayRows(settings.calendarDays).map((day) => normalizeApsCalendarDay(day, defaults.settings)).filter((day) => day.date),
+      timeLearningEnabled: settings.timeLearningEnabled === false ? false : true
     },
     operators: (operators.length ? operators : defaults.operators).map((operator) => ({
       ...operator,
@@ -7830,7 +8220,8 @@ function normalizeApsConfig(value: unknown): ApsConfig {
       enabledCenters: operator.enabledCenters.filter((code) => validCenterCodes.has(code))
     })),
     workCenters: workCenters.length ? workCenters : defaults.workCenters,
-    operations: operations.length ? operations : defaults.operations
+    operations: operations.length ? operations : defaults.operations,
+    timeRecords: arrayRows(row.timeRecords).map(normalizeApsTimeRecord).filter((record) => record.id && record.operationCode && record.productLine && record.capacity)
   };
 }
 
@@ -7850,6 +8241,30 @@ function normalizeApsOperation(value: unknown): ApsOperation {
     minOperators: toInteger(row.minOperators, 1),
     maxOperators: Math.max(toInteger(row.minOperators, 1), toInteger(row.maxOperators, 1)),
     allowedCenters: stringList(row.allowedCenters).map((center) => center.toUpperCase())
+  };
+}
+
+function normalizeApsTimeRecord(value: unknown): ApsTimeRecord {
+  const row = asRow(value);
+  const referenceType: ApsTimeReferenceType = row.referenceType === 'productionOrder' ? 'productionOrder' : 'salesOrder';
+  const orderNumber = String(row.orderNumber || '').trim();
+  const productionOrder = String(row.productionOrder || '').trim();
+  const reference = String(row.reference || (referenceType === 'productionOrder' ? productionOrder : orderNumber)).trim();
+  const quantity = Math.max(1, toInteger(row.quantity, 1));
+  return {
+    id: String(row.id || `tempo-${Date.now()}`).trim(),
+    referenceType,
+    reference,
+    orderNumber,
+    productionOrder,
+    operationCode: String(row.operationCode || '').trim(),
+    productLine: String(row.productLine || '').trim(),
+    capacity: String(row.capacity || row.capacityTr || '').trim(),
+    quantity,
+    setupHours: clampNumber(row.setupHours, 0, 10000, 0),
+    processHours: clampNumber(row.processHours, 0, 10000, 1),
+    note: String(row.note || '').trim(),
+    recordedAt: String(row.recordedAt || new Date().toISOString())
   };
 }
 
@@ -7971,6 +8386,205 @@ function nextApsOperator(operators: ApsOperator[], operations: ApsOperation[], c
   });
 }
 
+function nextApsTimeRecord(records: ApsTimeRecord[], operations: ApsOperation[]): ApsTimeRecord {
+  return normalizeApsTimeRecord({
+    id: `tempo-${Date.now()}-${records.length + 1}`,
+    referenceType: 'salesOrder',
+    reference: '',
+    orderNumber: '',
+    productionOrder: '',
+    operationCode: operations[0]?.code || '',
+    productLine: '',
+    capacity: '',
+    quantity: 1,
+    setupHours: 0,
+    processHours: 1,
+    note: '',
+    recordedAt: new Date().toISOString()
+  });
+}
+
+function applyApsOrderToTimeRecord(record: ApsTimeRecord, order: Row, referenceType: ApsTimeReferenceType): ApsTimeRecord {
+  const orderNumber = String(order.orderNumber || '').trim();
+  const productionOrder = String(order.productionOrder || '').trim();
+  return normalizeApsTimeRecord({
+    ...record,
+    referenceType,
+    reference: referenceType === 'productionOrder' ? productionOrder : orderNumber,
+    orderNumber,
+    productionOrder,
+    productLine: String(order.productLine || record.productLine || '').trim(),
+    capacity: String(order.capacityTr || record.capacity || '').trim(),
+    quantity: Math.max(1, toInteger(order.quantity, record.quantity || 1))
+  });
+}
+
+function findApsOrderForTimeRecord(record: ApsTimeRecord, orders: Row[]) {
+  const orderNumber = normalizeText(record.orderNumber || (record.referenceType === 'salesOrder' ? record.reference : ''));
+  const productionOrder = normalizeText(record.productionOrder || (record.referenceType === 'productionOrder' ? record.reference : ''));
+  return orders.find((order) => {
+    const currentOrderNumber = normalizeText(order.orderNumber);
+    const currentProductionOrder = normalizeText(order.productionOrder);
+    return Boolean((orderNumber && currentOrderNumber === orderNumber) || (productionOrder && currentProductionOrder === productionOrder));
+  }) || null;
+}
+
+function findApsOrderByOptionKey(orders: Row[], key: string) {
+  return orders.find((order) => apsOrderOptionKey(order) === key) || null;
+}
+
+function apsOrderOptionKey(order: Row | null) {
+  if (!order) return '';
+  return String(order.id || order.orderId || order.orderNumber || order.productionOrder || '');
+}
+
+function apsOrderOptionLabel(order: Row) {
+  return [
+    `PV ${String(order.orderNumber || '-')}`,
+    String(order.productionOrder || '').trim() ? `OP ${String(order.productionOrder)}` : 'Sem OP',
+    String(order.customer || '-'),
+    [String(order.productLine || '').trim(), apsCapacityDisplay(order.capacityTr)].filter(Boolean).join(' ')
+  ].filter(Boolean).join(' | ');
+}
+
+function apsTimeReferenceTypeLabel(value: ApsTimeReferenceType) {
+  return value === 'productionOrder' ? 'Ordem de producao' : 'Pedido de venda';
+}
+
+function apsOperationLabel(operationCode: string, operations: ApsOperation[]) {
+  return operations.find((operation) => operation.code === operationCode)?.description || operationCode || '-';
+}
+
+function buildApsTimeModel(records: ApsTimeRecord[]) {
+  const model = new Map<string, ApsTimeModelBucket>();
+  for (const record of records) {
+    if (!record.operationCode || !record.productLine || !record.capacity || record.processHours <= 0) continue;
+    const key = apsTimeModelKey(record.productLine, record.capacity, record.operationCode);
+    const quantity = Math.max(1, Number(record.quantity) || 1);
+    const processPerUnit = record.processHours / quantity;
+    const bucket = model.get(key) || emptyApsTimeModelBucket(key, record);
+    bucket.samples += 1;
+    bucket.setupTotal += Math.max(0, Number(record.setupHours) || 0);
+    bucket.processPerUnitTotal += processPerUnit;
+    bucket.quantityTotal += quantity;
+    bucket.setupHours = bucket.setupTotal / bucket.samples;
+    bucket.processHoursPerUnit = bucket.processPerUnitTotal / bucket.samples;
+    bucket.averageQuantity = bucket.quantityTotal / bucket.samples;
+    model.set(key, bucket);
+  }
+  return model;
+}
+
+function emptyApsTimeModelBucket(key: string, record: ApsTimeRecord): ApsTimeModelBucket {
+  return {
+    key,
+    productLine: record.productLine,
+    capacity: record.capacity,
+    operationCode: record.operationCode,
+    samples: 0,
+    setupHours: 0,
+    processHoursPerUnit: 0,
+    averageQuantity: 0,
+    setupTotal: 0,
+    processPerUnitTotal: 0,
+    quantityTotal: 0
+  };
+}
+
+function buildApsLearnedTimeRows(records: ApsTimeRecord[], operations: ApsOperation[]): ApsLearnedTimeRow[] {
+  return Array.from(buildApsTimeModel(records).values())
+    .map((bucket) => ({
+      key: bucket.key,
+      productLine: bucket.productLine || '-',
+      capacity: bucket.capacity || '-',
+      operationCode: bucket.operationCode,
+      operationLabel: apsOperationLabel(bucket.operationCode, operations),
+      samples: bucket.samples,
+      setupHours: bucket.setupHours,
+      processHoursPerUnit: bucket.processHoursPerUnit,
+      averageQuantity: bucket.averageQuantity,
+      confidence: apsTimeConfidence(bucket.samples)
+    }))
+    .sort((left, right) => compareLoose(left.productLine, right.productLine) || compareLoose(left.capacity, right.capacity) || compareLoose(left.operationLabel, right.operationLabel));
+}
+
+function resolveApsTaskTimeEstimate(
+  order: Row,
+  operation: ApsOperation,
+  quantity: number,
+  records: ApsTimeRecord[],
+  model: Map<string, ApsTimeModelBucket>
+) {
+  const exact = findExactApsTimeRecord(order, operation.code, records);
+  if (exact && exact.processHours > 0) {
+    return {
+      setupHours: Math.max(0, Number(exact.setupHours) || 0),
+      processHours: Math.max(0.1, Number(exact.processHours) || 0.1),
+      source: exact.referenceType === 'productionOrder' ? 'Tempo OP' : 'Tempo pedido',
+      samples: 1
+    };
+  }
+
+  const key = apsTimeModelKey(order.productLine, order.capacityTr, operation.code);
+  const learned = model.get(key);
+  if (learned && learned.samples > 0 && learned.processHoursPerUnit > 0) {
+    return {
+      setupHours: Math.max(0, learned.setupHours),
+      processHours: Math.max(0.1, learned.processHoursPerUnit * Math.max(1, quantity)),
+      source: `Media linha/cap. (${learned.samples})`,
+      samples: learned.samples
+    };
+  }
+
+  const lotSize = Math.max(1, Number(operation.lotSize) || 1);
+  return {
+    setupHours: Math.max(0, Number(operation.setupHours) || 0),
+    processHours: Math.max(0.1, (Number(operation.processHours) || 1) * Math.ceil(Math.max(1, quantity) / lotSize)),
+    source: 'Padrao operacao',
+    samples: 0
+  };
+}
+
+function findExactApsTimeRecord(order: Row, operationCode: string, records: ApsTimeRecord[]) {
+  const orderNumber = normalizeText(order.orderNumber);
+  const productionOrder = normalizeText(order.productionOrder);
+  return records.find((record) => {
+    if (record.operationCode !== operationCode) return false;
+    const reference = normalizeText(record.reference);
+    const recordOrder = normalizeText(record.orderNumber);
+    const recordProductionOrder = normalizeText(record.productionOrder);
+    if (record.referenceType === 'productionOrder') {
+      return Boolean(productionOrder && (reference === productionOrder || recordProductionOrder === productionOrder));
+    }
+    return Boolean(orderNumber && (reference === orderNumber || recordOrder === orderNumber));
+  }) || null;
+}
+
+function apsTimeModelKey(productLine: unknown, capacity: unknown, operationCode: unknown) {
+  return `${normalizeText(productLine)}|${normalizeApsCapacityKey(capacity)}|${String(operationCode || '')}`;
+}
+
+function normalizeApsCapacityKey(value: unknown) {
+  const text = String(value || '').trim().replace(',', '.');
+  const number = Number(text);
+  if (Number.isFinite(number)) return String(Math.round(number * 100) / 100);
+  return normalizeText(text);
+}
+
+function apsCapacityDisplay(value: unknown) {
+  const text = String(value || '').trim();
+  if (!text) return '-';
+  const number = Number(text.replace(',', '.'));
+  if (Number.isFinite(number)) return `${formatNumber(number)} TR`;
+  return text;
+}
+
+function apsTimeConfidence(samples: number) {
+  if (samples >= 8) return 'Alta';
+  if (samples >= 3) return 'Media';
+  return 'Baixa';
+}
+
 function apsScenarioConfigReact(config: ApsConfig, ui: ApsUiState): ApsConfig {
   const scenario = cloneApsConfig(config);
   const extraHours = clampNumber(ui.scenarioExtraHours, 0, 8, 0);
@@ -8081,6 +8695,9 @@ function buildApsScheduleReact(data: Row, configValue: ApsConfig, startDate: str
 
 function collectApsTasksReact(data: Row, config: ApsConfig, priorityRule: 'EDD' | 'MANUAL'): ApsTask[] {
   const orders = arrayRows(data.orders);
+  const timeLearningEnabled = config.settings.timeLearningEnabled !== false;
+  const timeRecords = timeLearningEnabled ? config.timeRecords : [];
+  const timeModel = timeLearningEnabled ? buildApsTimeModel(timeRecords) : new Map<string, ApsTimeModelBucket>();
   const operations = config.operations
     .filter((operation) => operation.flowType !== 'deviation')
     .slice()
@@ -8095,6 +8712,8 @@ function collectApsTasksReact(data: Row, config: ApsConfig, priorityRule: 'EDD' 
     pendingOperations.forEach((operation, operationIndex) => {
       const dueDate = String(order.productionDeliveryDate || order.originalDeliveryDate || order.entryDate || '');
       const manualSequence = (operation.sortOrder || operationIndex + 1) * 100000 + tasks.length;
+      const quantity = Math.max(1, Number(order.quantity) || 1);
+      const timeEstimate = resolveApsTaskTimeEstimate(order, operation, quantity, timeRecords, timeModel);
       tasks.push({
         ...order,
         orderId: String(order.id || order.orderId || order.orderNumber || manualSequence),
@@ -8104,7 +8723,10 @@ function collectApsTasksReact(data: Row, config: ApsConfig, priorityRule: 'EDD' 
         routeRank: operation.sortOrder || operationIndex + 1,
         dueDate,
         manualSequence,
-        estimatedHours: operation.processHours,
+        estimatedSetupHours: timeEstimate.setupHours,
+        estimatedHours: timeEstimate.processHours,
+        timeSource: timeEstimate.source,
+        timeSamples: timeEstimate.samples,
         pcpPendingCount: Number(order.pcpPendingCount) || 0,
         pcpPendingSummary: String(order.pcpPendingSummary || ''),
         priority: 0
@@ -8164,7 +8786,7 @@ function chooseApsAllocationReact({
       const qualifiedOperators = operatorResources.filter((operator) => apsOperatorCanRun(operator, operation.code, center.code));
       const usableOperators = qualifiedOperators.length ? qualifiedOperators : [defaultApsOperator(startDate)];
       for (const operator of usableOperators) {
-        const setupHours = Math.max(0, Number(operation.setupHours) || 0);
+        const setupHours = Math.max(0, Number(task.estimatedSetupHours) || Number(operation.setupHours) || 0);
         const processHours = apsProcessHoursReact(task, operation, center, operator);
         const earliest = new Date(Math.max(readyAt.getTime(), machine.availableAt.getTime(), operator.availableAt.getTime()));
         const startAt = normalizeApsWorkStart(earliest, settings);
@@ -8188,8 +8810,8 @@ function chooseApsAllocationReact({
       operator,
       readyAt,
       startAt,
-      setupHours: Math.max(0, Number(operation.setupHours) || 0),
-      processHours: Math.max(0.25, Number(operation.processHours) || 1)
+      setupHours: Math.max(0, Number(task.estimatedSetupHours) || Number(operation.setupHours) || 0),
+      processHours: Math.max(0.25, Number(task.estimatedHours) || Number(operation.processHours) || 1)
     };
   }
 
@@ -8376,7 +8998,7 @@ function chooseBestApsScheduleReact(currentSchedule: ApsSchedule, simulatedSched
 
 function exportApsScheduleCsv(schedule: ApsSchedule) {
   const rows = [
-    ['OP', 'Pedido', 'Cliente', 'Produto', 'Operacao', 'Centro', 'Maquina', 'Operador', 'Inicio previsto', 'Fim previsto', 'Setup h', 'Processo h', 'Fila h', 'Data prometida', 'Atraso dias', 'Prioridade', 'Status'],
+    ['OP', 'Pedido', 'Cliente', 'Produto', 'Operacao', 'Centro', 'Maquina', 'Operador', 'Inicio previsto', 'Fim previsto', 'Setup h', 'Processo h', 'Base tempo', 'Fila h', 'Data prometida', 'Atraso dias', 'Prioridade', 'Status'],
     ...schedule.rows.map((row) => [
       String(row.productionOrder || ''),
       String(row.orderNumber || ''),
@@ -8390,6 +9012,7 @@ function exportApsScheduleCsv(schedule: ApsSchedule) {
       formatLocalDateTime(row.endAt),
       formatNumber(row.setupHours),
       formatNumber(row.processHours),
+      String(row.timeSource || ''),
       formatNumber(row.queueHours),
       formatDate(row.dueDate),
       formatInteger(row.delayDays),
@@ -8410,7 +9033,8 @@ function normalizeApsSettings(settings: ApsSettings): ApsSettings {
     lunchStart: isTimeText(settings.lunchStart) ? settings.lunchStart : '12:00',
     lunchMinutes: clampNumber(settings.lunchMinutes, 0, 240, 60),
     priorityRule: settings.priorityRule === 'MANUAL' ? 'MANUAL' : 'EDD',
-    calendarDays: arrayRows(settings.calendarDays).map((day) => normalizeApsCalendarDay(day, defaults)).filter((day) => day.date)
+    calendarDays: arrayRows(settings.calendarDays).map((day) => normalizeApsCalendarDay(day, defaults)).filter((day) => day.date),
+    timeLearningEnabled: settings.timeLearningEnabled === false ? false : true
   };
 }
 

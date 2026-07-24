@@ -63,7 +63,8 @@ const DEFAULT_APS_CONFIG = {
     lunchStart: '12:00',
     lunchMinutes: 60,
     priorityRule: 'EDD',
-    calendarDays: []
+    calendarDays: [],
+    timeLearningEnabled: true
   },
   operators: [
     {
@@ -162,7 +163,8 @@ const DEFAULT_APS_CONFIG = {
       maxOperators: 1,
       allowedCenters: ['ENG']
     }
-  ]
+  ],
+  timeRecords: []
 };
 
 const seedOrders = [
@@ -5416,14 +5418,17 @@ function sanitizeApsConfig(input, statuses = []) {
       priorityRule: ['EDD', 'MANUAL'].includes(String(settings.priorityRule || '').toUpperCase())
         ? String(settings.priorityRule || '').toUpperCase()
         : defaults.settings.priorityRule,
-      calendarDays: sanitizeApsCalendarDays(settings.calendarDays, defaults.settings)
+      calendarDays: sanitizeApsCalendarDays(settings.calendarDays, defaults.settings),
+      timeLearningEnabled: settings.timeLearningEnabled === false ? false : true
     },
     operators: sanitizeApsOperators(raw.operators, defaults.operators),
     workCenters: sanitizeApsWorkCenters(raw.workCenters, defaults.workCenters),
-    operations: sanitizeApsOperations(raw.operations, defaults.operations)
+    operations: sanitizeApsOperations(raw.operations, defaults.operations),
+    timeRecords: sanitizeApsTimeRecords(raw.timeRecords, defaults.timeRecords)
   };
 
   config.operations = apsOperationsFromStatuses(statuses, config.operations);
+  normalizeApsTimeRecordLinks(config);
   normalizeApsOperatorLinks(config);
   return config;
 }
@@ -5530,6 +5535,40 @@ function sanitizeApsOperations(value, fallback) {
   return clean.length ? clean : fallback;
 }
 
+function sanitizeApsTimeRecords(value, fallback) {
+  const rows = Array.isArray(value) ? value : [];
+  const clean = rows
+    .map((row) => {
+      const item = row && typeof row === 'object' ? row : {};
+      const referenceType = item.referenceType === 'productionOrder' ? 'productionOrder' : 'salesOrder';
+      const orderNumber = sanitizePlainText(item.orderNumber, '');
+      const productionOrder = sanitizePlainText(item.productionOrder, '');
+      const reference = sanitizePlainText(item.reference, referenceType === 'productionOrder' ? productionOrder : orderNumber);
+      const operationCode = sanitizeCode(item.operationCode);
+      const productLine = sanitizePlainText(item.productLine, '');
+      const capacity = sanitizePlainText(item.capacity || item.capacityTr, '');
+      if (!operationCode || !productLine || !capacity) return null;
+      return {
+        id: sanitizePlainText(item.id, `tempo-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`),
+        referenceType,
+        reference,
+        orderNumber,
+        productionOrder,
+        operationCode,
+        productLine,
+        capacity,
+        quantity: sanitizePositiveInteger(item.quantity, 1, 1, 100000),
+        setupHours: sanitizePositiveNumber(item.setupHours, 0, 0, 10000),
+        processHours: sanitizePositiveNumber(item.processHours, 1, 0, 10000),
+        note: sanitizePlainText(item.note, ''),
+        recordedAt: sanitizePlainText(item.recordedAt, new Date().toISOString())
+      };
+    })
+    .filter(Boolean);
+
+  return clean.length ? clean.slice(0, 5000) : fallback;
+}
+
 function apsOperationsFromStatuses(statuses, existingOperations) {
   const rows = Array.isArray(statuses) ? statuses : [];
   const statusRows = rows
@@ -5581,6 +5620,11 @@ function normalizeApsOperatorLinks(config) {
     enabledOperations: (operator.enabledOperations || []).filter((code) => operationCodes.has(code)),
     enabledCenters: (operator.enabledCenters || []).filter((code) => centerCodes.has(code))
   }));
+}
+
+function normalizeApsTimeRecordLinks(config) {
+  const operationCodes = new Set((config.operations || []).map((operation) => operation.code));
+  config.timeRecords = (config.timeRecords || []).filter((record) => operationCodes.has(record.operationCode));
 }
 
 function sanitizeStringList(value) {
