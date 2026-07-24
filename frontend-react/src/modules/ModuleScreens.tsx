@@ -3740,6 +3740,10 @@ export function SequencingScreen({ user, realtimeRefreshKey = 0 }: ModuleProps) 
     exportSequencingCsv(selectedActivity, orderedRows, schedule);
   }
 
+  function printSequencingReport() {
+    window.setTimeout(() => window.print(), 80);
+  }
+
   return (
     <ModuleFrame title="Sequenciamento" subtitle="Filas por atividade, tempo estimado e cronograma Gantt." error={error}>
       <div className="module-metrics compact">
@@ -3773,7 +3777,7 @@ export function SequencingScreen({ user, realtimeRefreshKey = 0 }: ModuleProps) 
             </>
           )}
           <button className="btn" type="button" onClick={exportSelectedActivity} disabled={!orderedRows.length}>Exportar Excel</button>
-          <button className="btn" type="button" onClick={() => window.print()} disabled={!orderedRows.length}>Imprimir</button>
+          <button className="btn" type="button" onClick={printSequencingReport} disabled={!orderedRows.length}><IconText name="printer">Imprimir</IconText></button>
         </div>
       </section>
 
@@ -3891,7 +3895,136 @@ export function SequencingScreen({ user, realtimeRefreshKey = 0 }: ModuleProps) 
           {!schedule.length && <div className="chart-empty">Sem itens para montar o cronograma.</div>}
         </div>
       </section>
+      {!!orderedRows.length && (
+        <SequencingPrintSheet
+          activity={selectedActivity}
+          rows={orderedRows}
+          schedule={schedule}
+          scheduleStart={scheduleStart}
+          scheduleEnd={scheduleEnd}
+          totalEstimatedHours={totalEstimatedHours}
+          pcpPendingCount={pcpPendingCount}
+        />
+      )}
     </ModuleFrame>
+  );
+}
+
+function SequencingPrintSheet({
+  activity,
+  rows,
+  schedule,
+  scheduleStart,
+  scheduleEnd,
+  totalEstimatedHours,
+  pcpPendingCount
+}: {
+  activity?: Row;
+  rows: Row[];
+  schedule: SequencingScheduleItem[];
+  scheduleStart: Date;
+  scheduleEnd: Date;
+  totalEstimatedHours: number;
+  pcpPendingCount: number;
+}) {
+  const scheduleByOrder = new Map(schedule.map((item) => [sequencingOrderKey(item.row), item]));
+  const activityLabel = String(activity?.label || activity?.key || '-');
+
+  return (
+    <section className="sequencing-print-sheet" aria-hidden="true">
+      <header className="sequencing-print-header">
+        <img src="/mge-logo.png" alt="MGE air" />
+        <div>
+          <span>Synapse | MGE Smart System</span>
+          <h1>Relatorio de Sequenciamento</h1>
+          <p>{activityLabel}</p>
+        </div>
+        <strong>{formatLocalDateTime(new Date())}</strong>
+      </header>
+
+      <div className="sequencing-print-meta">
+        <article>
+          <span>Atividade</span>
+          <strong>{activityLabel}</strong>
+        </article>
+        <article>
+          <span>Itens na fila</span>
+          <strong>{formatInteger(rows.length)}</strong>
+        </article>
+        <article>
+          <span>Tempo total</span>
+          <strong>{formatNumber(totalEstimatedHours)} h</strong>
+        </article>
+        <article>
+          <span>Pendencias PCP</span>
+          <strong>{formatInteger(pcpPendingCount)}</strong>
+        </article>
+        <article>
+          <span>Inicio</span>
+          <strong>{formatLocalDateTime(scheduleStart)}</strong>
+        </article>
+        <article>
+          <span>Fim</span>
+          <strong>{formatLocalDateTime(scheduleEnd)}</strong>
+        </article>
+      </div>
+
+      <div className="sequencing-print-gantt">
+        <h2>Cronograma Gantt</h2>
+        {schedule.map((item, index) => (
+          <div className="sequencing-print-gantt-row" key={`print-gantt-${sequencingOrderKey(item.row) || index}`}>
+            <div>
+              <strong>{formatInteger(item.sequenceNumber)}. Pedido {String(item.row.orderNumber || '-')}</strong>
+              <span>{String(item.row.customer || '-')} | {String(item.row.sku || '-')}</span>
+            </div>
+            <div className="sequencing-print-gantt-track">
+              <span style={{ left: `${item.offsetPercent}%`, width: `${item.widthPercent}%` }}>{formatNumber(item.durationHours)} h</span>
+            </div>
+            <small>{formatLocalDateTime(item.startAt)} - {formatLocalDateTime(item.endAt)}</small>
+          </div>
+        ))}
+      </div>
+
+      <table className="sequencing-print-table">
+        <thead>
+          <tr>
+            <th>Seq.</th>
+            <th>Pedido</th>
+            <th>Cliente</th>
+            <th>SKU</th>
+            <th>OP</th>
+            <th>Linha</th>
+            <th>Qtd.</th>
+            <th>Status</th>
+            <th>Inicio</th>
+            <th>Fim</th>
+            <th>Tempo h</th>
+            <th>Pendencias</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, index) => {
+            const item = scheduleByOrder.get(sequencingOrderKey(row));
+            return (
+              <tr key={`print-row-${sequencingOrderKey(row) || index}`}>
+                <td>{formatInteger(item?.sequenceNumber || index + 1)}</td>
+                <td>{String(row.orderNumber || '-')}</td>
+                <td>{String(row.customer || '-')}</td>
+                <td>{String(row.sku || '-')}</td>
+                <td>{String(row.productionOrder || '-')}</td>
+                <td>{String(row.productLine || '-')}</td>
+                <td>{formatInteger(row.quantity)}</td>
+                <td>{String(row.status || '-')}</td>
+                <td>{item ? formatLocalDateTime(item.startAt) : '-'}</td>
+                <td>{item ? formatLocalDateTime(item.endAt) : '-'}</td>
+                <td>{item ? formatNumber(item.durationHours) : '-'}</td>
+                <td>{String(row.pcpPendingSummary || (Number(row.pcpPendingCount) > 0 ? `${formatInteger(row.pcpPendingCount)} pend.` : '-'))}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </section>
   );
 }
 
