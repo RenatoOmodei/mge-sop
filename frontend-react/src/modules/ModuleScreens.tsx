@@ -4649,10 +4649,14 @@ function ApsProductiveCalendarEditor({
   const normalizedSettings = normalizeApsSettings(settings);
   const months = useMemo(() => buildApsCalendarMonths(), []);
   const allDates = useMemo(() => months.flatMap((month) => month.days.map(dateInputValue)), [months]);
+  const [selectedDate, setSelectedDate] = useState('');
   const calendarByDate = useMemo(
     () => new Map(normalizedSettings.calendarDays.map((day) => [day.date, day])),
     [normalizedSettings.calendarDays]
   );
+  const activeDateKey = selectedDate && allDates.includes(selectedDate) ? selectedDate : allDates[0] || '';
+  const activeDate = activeDateKey ? parseLocalDate(activeDateKey) : null;
+  const activeDay = activeDate ? calendarByDate.get(activeDateKey) || apsEffectiveCalendarDay(activeDate, normalizedSettings) : null;
   const productiveCount = allDates.reduce((sum, date) => {
     const day = calendarByDate.get(date) || apsEffectiveCalendarDay(parseLocalDate(date), normalizedSettings);
     return sum + (day.productive ? 1 : 0);
@@ -4708,6 +4712,39 @@ function ApsProductiveCalendarEditor({
           <button className="btn" type="button" disabled={!canEdit} onClick={() => onUpdate({ calendarDays: [] })}>Limpar excecoes</button>
         </div>
       </div>
+      {activeDate && activeDay && (
+        <div className="aps-calendar-selected-editor">
+          <div className="aps-calendar-selected-title">
+            <span>Dia selecionado</span>
+            <strong>{formatDate(activeDateKey)} - {weekdayShortLabel(activeDate)}</strong>
+            <em className={activeDay.productive ? 'productive' : 'inactive'}>{activeDay.productive ? 'Produtivo' : 'Nao produtivo'}</em>
+          </div>
+          <label className="aps-calendar-productive-toggle">
+            <input type="checkbox" checked={activeDay.productive} disabled={!canEdit} onChange={(event) => updateDay(activeDateKey, { productive: event.target.checked })} />
+            <span>Dia produtivo</span>
+          </label>
+          <label className="field">
+            <span>Inicio jornada</span>
+            <input className="input" type="time" value={activeDay.startTime} disabled={!canEdit || !activeDay.productive} onChange={(event) => updateDay(activeDateKey, { startTime: event.target.value })} />
+          </label>
+          <label className="field">
+            <span>Horas dia</span>
+            <input className="input" type="number" min="0" max="24" step="0.5" value={activeDay.dailyHours} disabled={!canEdit || !activeDay.productive} onChange={(event) => updateDay(activeDateKey, { dailyHours: toNumber(event.target.value, activeDay.dailyHours) })} />
+          </label>
+          <label className="field">
+            <span>Inicio almoco</span>
+            <input className="input" type="time" value={activeDay.lunchStart} disabled={!canEdit || !activeDay.productive} onChange={(event) => updateDay(activeDateKey, { lunchStart: event.target.value })} />
+          </label>
+          <label className="field">
+            <span>Min. almoco</span>
+            <input className="input" type="number" min="0" max="240" step="5" value={activeDay.lunchMinutes} disabled={!canEdit || !activeDay.productive} onChange={(event) => updateDay(activeDateKey, { lunchMinutes: toNumber(event.target.value, activeDay.lunchMinutes) })} />
+          </label>
+          <label className="field aps-calendar-note-field">
+            <span>Observacao</span>
+            <input className="input" value={activeDay.note} disabled={!canEdit} onChange={(event) => updateDay(activeDateKey, { note: event.target.value })} />
+          </label>
+        </div>
+      )}
       <div className="aps-calendar-months">
         {months.map((month) => (
           <article className="aps-calendar-month" key={month.key}>
@@ -4721,15 +4758,14 @@ function ApsProductiveCalendarEditor({
                 const dateKey = dateInputValue(date);
                 const day = calendarByDate.get(dateKey) || apsEffectiveCalendarDay(date, normalizedSettings);
                 return (
-                  <div className={`aps-calendar-day ${day.productive ? 'productive' : 'inactive'}`} key={dateKey}>
-                    <label className="aps-calendar-day-head">
-                      <input type="checkbox" checked={day.productive} disabled={!canEdit} onChange={(event) => updateDay(dateKey, { productive: event.target.checked })} />
+                  <button className={`aps-calendar-day ${day.productive ? 'productive' : 'inactive'} ${activeDateKey === dateKey ? 'selected' : ''}`} key={dateKey} type="button" onClick={() => setSelectedDate(dateKey)}>
+                    <span className="aps-calendar-day-top">
                       <strong>{date.getDate()}</strong>
-                    </label>
-                    <span>{weekdayShortLabel(date)}</span>
-                    <input className="input" aria-label={`Inicio ${dateKey}`} type="time" value={day.startTime} disabled={!canEdit || !day.productive} onChange={(event) => updateDay(dateKey, { startTime: event.target.value })} />
-                    <input className="input" aria-label={`Horas ${dateKey}`} type="number" min="0" max="24" step="0.5" value={day.dailyHours} disabled={!canEdit || !day.productive} onChange={(event) => updateDay(dateKey, { dailyHours: toNumber(event.target.value, day.dailyHours) })} />
-                  </div>
+                      <span>{weekdayShortLabel(date)}</span>
+                    </span>
+                    <span className="aps-calendar-day-status">{day.productive ? 'Prod.' : 'Folga'}</span>
+                    <span className="aps-calendar-day-hours">{day.productive ? `${day.startTime} | ${formatNumber(day.dailyHours)}h` : '-'}</span>
+                  </button>
                 );
               })}
             </div>
@@ -7856,8 +7892,8 @@ function upsertApsCalendarDay(days: ApsCalendarDay[], day: ApsCalendarDay, setti
 
 function buildApsCalendarMonths() {
   const today = new Date();
-  const startDate = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-  const endDate = new Date(today.getFullYear(), today.getMonth() + 12, today.getDate());
+  const startDate = new Date(today.getFullYear(), today.getMonth(), 1);
+  const endDate = new Date(today.getFullYear(), today.getMonth() + 12, 1);
   const months: Array<{ key: string; label: string; blanks: number; days: Date[] }> = [];
 
   for (let offset = 0; offset < 12; offset += 1) {
