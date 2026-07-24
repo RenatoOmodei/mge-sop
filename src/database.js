@@ -62,7 +62,8 @@ const DEFAULT_APS_CONFIG = {
     dailyHours: 8,
     lunchStart: '12:00',
     lunchMinutes: 60,
-    priorityRule: 'EDD'
+    priorityRule: 'EDD',
+    calendarDays: []
   },
   operators: [
     {
@@ -5414,7 +5415,8 @@ function sanitizeApsConfig(input, statuses = []) {
       lunchMinutes: sanitizePositiveNumber(settings.lunchMinutes, defaults.settings.lunchMinutes, 0, 240),
       priorityRule: ['EDD', 'MANUAL'].includes(String(settings.priorityRule || '').toUpperCase())
         ? String(settings.priorityRule || '').toUpperCase()
-        : defaults.settings.priorityRule
+        : defaults.settings.priorityRule,
+      calendarDays: sanitizeApsCalendarDays(settings.calendarDays, defaults.settings)
     },
     operators: sanitizeApsOperators(raw.operators, defaults.operators),
     workCenters: sanitizeApsWorkCenters(raw.workCenters, defaults.workCenters),
@@ -5475,6 +5477,26 @@ function sanitizeApsWorkCenters(value, fallback) {
     .filter(Boolean);
 
   return clean.length ? clean : fallback;
+}
+
+function sanitizeApsCalendarDays(value, settings) {
+  const rows = Array.isArray(value) ? value : [];
+  const byDate = new Map();
+  for (const row of rows) {
+    const item = row && typeof row === 'object' ? row : {};
+    const date = sanitizeDateText(item.date);
+    if (!date) continue;
+    byDate.set(date, {
+      date,
+      productive: item.productive === false ? false : true,
+      startTime: sanitizeTimeText(item.startTime, settings.workdayStart),
+      dailyHours: sanitizePositiveNumber(item.dailyHours, settings.dailyHours, 0, 24),
+      lunchStart: sanitizeTimeText(item.lunchStart, settings.lunchStart),
+      lunchMinutes: sanitizePositiveNumber(item.lunchMinutes, settings.lunchMinutes, 0, 240),
+      note: sanitizePlainText(item.note, '')
+    });
+  }
+  return Array.from(byDate.values()).sort((left, right) => left.date.localeCompare(right.date)).slice(0, 900);
 }
 
 function sanitizeApsOperations(value, fallback) {
@@ -5587,6 +5609,11 @@ function sanitizePlainText(value, fallback = '') {
 function sanitizeTimeText(value, fallback) {
   const text = String(value || '').trim();
   return /^\d{2}:\d{2}$/.test(text) ? text : fallback;
+}
+
+function sanitizeDateText(value) {
+  const text = String(value || '').trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : '';
 }
 
 function sanitizePositiveNumber(value, fallback, min, max) {

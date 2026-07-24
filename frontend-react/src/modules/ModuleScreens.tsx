@@ -230,6 +230,16 @@ type ApsSettings = {
   lunchStart: string;
   lunchMinutes: number;
   priorityRule: 'EDD' | 'MANUAL';
+  calendarDays: ApsCalendarDay[];
+};
+type ApsCalendarDay = {
+  date: string;
+  productive: boolean;
+  startTime: string;
+  dailyHours: number;
+  lunchStart: string;
+  lunchMinutes: number;
+  note: string;
 };
 type ApsOperator = {
   code: string;
@@ -4283,6 +4293,7 @@ export function ApsScreen({ user, realtimeRefreshKey = 0, configFocus }: ModuleP
   const configOnly = Boolean(configFocus);
   const activeConfigTab = configFocus && configFocus !== 'calendar' ? configFocus : ui.configTab;
   const showApsSettings = !configFocus || configFocus === 'calendar';
+  const showApsCalendar = configFocus === 'calendar';
   const showApsTabs = !configFocus;
   const showApsOperations = activeConfigTab === 'operations' && configFocus !== 'calendar';
   const showApsCenters = activeConfigTab === 'centers' && configFocus !== 'calendar';
@@ -4311,20 +4322,6 @@ export function ApsScreen({ user, realtimeRefreshKey = 0, configFocus }: ModuleP
     }));
   }
 
-  function updateWorkCenter(index: number, patch: Partial<ApsWorkCenter>) {
-    updateConfig((current) => ({
-      ...current,
-      workCenters: current.workCenters.map((center, rowIndex) => (rowIndex === index ? { ...center, ...patch } : center))
-    }));
-  }
-
-  function addWorkCenter() {
-    updateConfig((current) => ({
-      ...current,
-      workCenters: [...current.workCenters, nextApsWorkCenter(current.workCenters)]
-    }));
-  }
-
   function removeWorkCenter(code: string) {
     updateConfig((current) => ({
       ...current,
@@ -4338,6 +4335,30 @@ export function ApsScreen({ user, realtimeRefreshKey = 0, configFocus }: ModuleP
         allowedCenters: operation.allowedCenters.filter((centerCode) => centerCode !== code)
       }))
     }));
+  }
+
+  function saveWorkCenter(index: number | null, center: ApsWorkCenter) {
+    updateConfig((current) => {
+      const cleanCenter = normalizeApsWorkCenter(center);
+      const previousCode = index !== null ? current.workCenters[index]?.code : '';
+      const workCenters = index !== null && current.workCenters[index]
+        ? current.workCenters.map((row, rowIndex) => (rowIndex === index ? cleanCenter : row))
+        : [...current.workCenters, cleanCenter];
+      const replaceCenterCode = (codes: string[]) => codes.map((code) => previousCode && code === previousCode ? cleanCenter.code : code);
+
+      return {
+        ...current,
+        workCenters,
+        operators: current.operators.map((operator) => ({
+          ...operator,
+          enabledCenters: replaceCenterCode(operator.enabledCenters)
+        })),
+        operations: current.operations.map((operation) => ({
+          ...operation,
+          allowedCenters: replaceCenterCode(operation.allowedCenters)
+        }))
+      };
+    });
   }
 
   function updateOperator(index: number, patch: Partial<ApsOperator>) {
@@ -4573,11 +4594,15 @@ export function ApsScreen({ user, realtimeRefreshKey = 0, configFocus }: ModuleP
           </label>
         </div>}
 
+        {showApsCalendar && (
+          <ApsProductiveCalendarEditor settings={config.settings} canEdit={canEditAps} onUpdate={updateSettings} />
+        )}
+
         {showApsOperations && (
           <ApsOperationsEditor operations={config.operations} centers={config.workCenters} canEdit={canEditAps} onUpdate={updateOperation} />
         )}
         {showApsCenters && (
-          <ApsCentersEditor centers={config.workCenters} canEdit={canEditAps} onUpdate={updateWorkCenter} onAdd={addWorkCenter} onRemove={removeWorkCenter} />
+          <ApsCentersEditor centers={config.workCenters} canEdit={canEditAps} onSave={saveWorkCenter} onRemove={removeWorkCenter} />
         )}
         {showApsOperators && (
           <ApsOperatorsEditor
@@ -4608,6 +4633,109 @@ function apsConfigFocusSubtitle(focus: ApsConfigFocus) {
   if (focus === 'calendar') return 'Jornada de trabalho, almoco, horas produtivas e regra de prioridade.';
   if (focus === 'centers') return 'Centros de trabalho, maquinas, capacidade, eficiencia e calendario.';
   return 'Operacoes puxadas dos status, tempos, lote, operadores e centros permitidos.';
+}
+
+function ApsProductiveCalendarEditor({
+  settings,
+  canEdit,
+  onUpdate
+}: {
+  settings: ApsSettings;
+  canEdit: boolean;
+  onUpdate: (patch: Partial<ApsSettings>) => void;
+}) {
+  const normalizedSettings = normalizeApsSettings(settings);
+  const months = useMemo(() => buildApsCalendarMonths(), []);
+  const allDates = useMemo(() => months.flatMap((month) => month.days.map(dateInputValue)), [months]);
+  const calendarByDate = useMemo(
+    () => new Map(normalizedSettings.calendarDays.map((day) => [day.date, day])),
+    [normalizedSettings.calendarDays]
+  );
+  const productiveCount = allDates.reduce((sum, date) => {
+    const day = calendarByDate.get(date) || apsEffectiveCalendarDay(parseLocalDate(date), normalizedSettings);
+    return sum + (day.productive ? 1 : 0);
+  }, 0);
+
+  function updateDay(date: string, patch: Partial<ApsCalendarDay>) {
+    if (!canEdit) return;
+    const current = calendarByDate.get(date) || apsEffectiveCalendarDay(parseLocalDate(date), normalizedSettings);
+    const next = normalizeApsCalendarDay({ ...current, ...patch, date }, normalizedSettings);
+    onUpdate({ calendarDays: upsertApsCalendarDay(normalizedSettings.calendarDays, next, normalizedSettings) });
+  }
+
+  function generateWeekdayCalendar() {
+    const days = allDates.map((date) => {
+      const parsed = parseLocalDate(date);
+      return normalizeApsCalendarDay({
+        date,
+        productive: !isWeekend(parsed),
+        startTime: normalizedSettings.workdayStart,
+        dailyHours: normalizedSettings.dailyHours,
+        lunchStart: normalizedSettings.lunchStart,
+        lunchMinutes: normalizedSettings.lunchMinutes,
+        note: ''
+      }, normalizedSettings);
+    });
+    onUpdate({ calendarDays: days });
+  }
+
+  function applyDefaultHoursToProductiveDays() {
+    const days = allDates.map((date) => {
+      const current = calendarByDate.get(date) || apsEffectiveCalendarDay(parseLocalDate(date), normalizedSettings);
+      return normalizeApsCalendarDay({
+        ...current,
+        startTime: normalizedSettings.workdayStart,
+        dailyHours: normalizedSettings.dailyHours,
+        lunchStart: normalizedSettings.lunchStart,
+        lunchMinutes: normalizedSettings.lunchMinutes
+      }, normalizedSettings);
+    });
+    onUpdate({ calendarDays: days });
+  }
+
+  return (
+    <section className="aps-calendar-editor">
+      <div className="panel-title">
+        <div>
+          <h3>Calendario produtivo</h3>
+          <span>{productiveCount} dias produtivos nos proximos 12 meses</span>
+        </div>
+        <div className="panel-actions">
+          <button className="btn" type="button" disabled={!canEdit} onClick={generateWeekdayCalendar}>Gerar seg-sex</button>
+          <button className="btn" type="button" disabled={!canEdit} onClick={applyDefaultHoursToProductiveDays}>Aplicar horarios padrao</button>
+          <button className="btn" type="button" disabled={!canEdit} onClick={() => onUpdate({ calendarDays: [] })}>Limpar excecoes</button>
+        </div>
+      </div>
+      <div className="aps-calendar-months">
+        {months.map((month) => (
+          <article className="aps-calendar-month" key={month.key}>
+            <h4>{month.label}</h4>
+            <div className="aps-calendar-weekdays">
+              {['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab'].map((day) => <span key={day}>{day}</span>)}
+            </div>
+            <div className="aps-calendar-grid">
+              {Array.from({ length: month.blanks }, (_item, index) => <span className="aps-calendar-blank" key={`blank-${month.key}-${index}`} />)}
+              {month.days.map((date) => {
+                const dateKey = dateInputValue(date);
+                const day = calendarByDate.get(dateKey) || apsEffectiveCalendarDay(date, normalizedSettings);
+                return (
+                  <div className={`aps-calendar-day ${day.productive ? 'productive' : 'inactive'}`} key={dateKey}>
+                    <label className="aps-calendar-day-head">
+                      <input type="checkbox" checked={day.productive} disabled={!canEdit} onChange={(event) => updateDay(dateKey, { productive: event.target.checked })} />
+                      <strong>{date.getDate()}</strong>
+                    </label>
+                    <span>{weekdayShortLabel(date)}</span>
+                    <input className="input" aria-label={`Inicio ${dateKey}`} type="time" value={day.startTime} disabled={!canEdit || !day.productive} onChange={(event) => updateDay(dateKey, { startTime: event.target.value })} />
+                    <input className="input" aria-label={`Horas ${dateKey}`} type="number" min="0" max="24" step="0.5" value={day.dailyHours} disabled={!canEdit || !day.productive} onChange={(event) => updateDay(dateKey, { dailyHours: toNumber(event.target.value, day.dailyHours) })} />
+                  </div>
+                );
+              })}
+            </div>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
 }
 
 function ApsOperationsEditor({
@@ -4681,19 +4809,92 @@ function ApsOperationsEditor({
 function ApsCentersEditor({
   centers,
   canEdit,
-  onUpdate,
-  onAdd,
+  onSave,
   onRemove
 }: {
   centers: ApsWorkCenter[];
   canEdit: boolean;
-  onUpdate: (index: number, patch: Partial<ApsWorkCenter>) => void;
-  onAdd: () => void;
+  onSave: (index: number | null, center: ApsWorkCenter) => void;
   onRemove: (code: string) => void;
 }) {
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const [draft, setDraft] = useState<ApsWorkCenter | null>(null);
+
+  function startNew() {
+    setEditingIndex(null);
+    setDraft(nextApsWorkCenter(centers));
+  }
+
+  function startEdit(index: number) {
+    setEditingIndex(index);
+    setDraft({ ...centers[index] });
+  }
+
+  function updateDraft(patch: Partial<ApsWorkCenter>) {
+    setDraft((current) => current ? normalizeApsWorkCenter({ ...current, ...patch }) : current);
+  }
+
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!draft) return;
+    onSave(editingIndex, draft);
+    setEditingIndex(null);
+    setDraft(null);
+  }
+
   return (
     <>
-      {canEdit && <button className="btn module-action" type="button" onClick={onAdd}>Adicionar centro</button>}
+      {canEdit && (
+        <div className="module-action-row">
+          <button className="btn primary" type="button" onClick={startNew}><IconText name="plus">Novo centro</IconText></button>
+        </div>
+      )}
+      {draft && (
+        <form className="aps-center-form" onSubmit={submit}>
+          <div className="panel-title">
+            <h3>{editingIndex === null ? 'Novo centro de trabalho' : 'Editar centro de trabalho'}</h3>
+            <span>{draft.code || 'Informe o codigo'}</span>
+          </div>
+          <div className="aps-center-form-grid">
+            <label className="field">
+              <span>Codigo</span>
+              <input className="input" value={draft.code} disabled={!canEdit} onChange={(event) => updateDraft({ code: event.target.value.toUpperCase() })} required />
+            </label>
+            <label className="field aps-center-span-2">
+              <span>Descricao</span>
+              <input className="input" value={draft.description} disabled={!canEdit} onChange={(event) => updateDraft({ description: event.target.value })} required />
+            </label>
+            <label className="field">
+              <span>Maquinas</span>
+              <input className="input" type="number" min="1" step="1" value={draft.machineCount} disabled={!canEdit} onChange={(event) => updateDraft({ machineCount: toInteger(event.target.value, 1) })} />
+            </label>
+            <label className="field">
+              <span>Eficiencia</span>
+              <input className="input" type="number" min="0.1" step="0.05" value={draft.efficiency} disabled={!canEdit} onChange={(event) => updateDraft({ efficiency: toNumber(event.target.value, 1) })} />
+            </label>
+            <label className="field">
+              <span>Capacidade h</span>
+              <input className="input" type="number" min="0" step="0.5" value={draft.capacity} disabled={!canEdit} onChange={(event) => updateDraft({ capacity: toNumber(event.target.value, 8) })} />
+            </label>
+            <label className="field">
+              <span>Turno</span>
+              <input className="input" value={draft.shift} disabled={!canEdit} onChange={(event) => updateDraft({ shift: event.target.value, calendar: event.target.value })} />
+            </label>
+            <label className="field">
+              <span>Calendario</span>
+              <input className="input" value={draft.calendar} disabled={!canEdit} onChange={(event) => updateDraft({ calendar: event.target.value })} />
+            </label>
+            <label className="field aps-center-span-2">
+              <span>Manutencao / observacoes</span>
+              <textarea className="input" rows={2} value={draft.maintenance} disabled={!canEdit} onChange={(event) => updateDraft({ maintenance: event.target.value })} />
+            </label>
+          </div>
+          <div className="admin-form-actions">
+            <button className="btn primary" type="submit" disabled={!canEdit}><IconText name="save">Salvar centro</IconText></button>
+            <button className="btn" type="button" onClick={() => { setDraft(null); setEditingIndex(null); }}><IconText name="close">Cancelar</IconText></button>
+          </div>
+        </form>
+      )}
       <div className="generic-table-wrap aps-config-table-wrap">
         <table className="generic-table aps-config-table">
           <thead>
@@ -4711,16 +4912,19 @@ function ApsCentersEditor({
           <tbody>
             {centers.map((center, index) => (
               <tr key={`${center.code}-${index}`}>
-                <td><input className="input table-inline-input" value={center.code} disabled={!canEdit} onChange={(event) => onUpdate(index, { code: event.target.value.toUpperCase() })} /></td>
-                <td><input className="input table-inline-input wide" value={center.description} disabled={!canEdit} onChange={(event) => onUpdate(index, { description: event.target.value })} /></td>
-                <td><input className="input table-inline-input" type="number" min="1" step="1" value={center.machineCount} disabled={!canEdit} onChange={(event) => onUpdate(index, { machineCount: toInteger(event.target.value, 1) })} /></td>
-                <td><input className="input table-inline-input" type="number" min="0.1" step="0.05" value={center.efficiency} disabled={!canEdit} onChange={(event) => onUpdate(index, { efficiency: toNumber(event.target.value, 1) })} /></td>
-                <td><input className="input table-inline-input" type="number" min="0" step="0.5" value={center.capacity} disabled={!canEdit} onChange={(event) => onUpdate(index, { capacity: toNumber(event.target.value, 8) })} /></td>
-                <td><input className="input table-inline-input" value={center.shift} disabled={!canEdit} onChange={(event) => onUpdate(index, { shift: event.target.value, calendar: event.target.value })} /></td>
-                <td><input className="input table-inline-input wide" value={center.maintenance} disabled={!canEdit} onChange={(event) => onUpdate(index, { maintenance: event.target.value })} /></td>
+                <td><strong>{center.code}</strong></td>
+                <td>{center.description}</td>
+                <td>{formatInteger(center.machineCount)}</td>
+                <td>{formatNumber(center.efficiency)}</td>
+                <td>{formatNumber(center.capacity)}</td>
+                <td>{center.shift}</td>
+                <td>{center.maintenance || '-'}</td>
                 {canEdit && (
                   <td className="row-actions-cell">
-                    <button className="btn" type="button" onClick={() => onRemove(center.code)}>Excluir</button>
+                    <div className="table-actions">
+                      <button className="btn" type="button" onClick={() => startEdit(index)}><IconText name="edit">Editar</IconText></button>
+                      <button className="btn" type="button" onClick={() => onRemove(center.code)}><IconText name="trash">Excluir</IconText></button>
+                    </div>
                   </td>
                 )}
               </tr>
@@ -7516,7 +7720,8 @@ function defaultApsConfig(): ApsConfig {
       dailyHours: 8,
       lunchStart: '12:00',
       lunchMinutes: 60,
-      priorityRule: 'EDD'
+      priorityRule: 'EDD',
+      calendarDays: []
     },
     operators: [
       {
@@ -7578,7 +7783,8 @@ function normalizeApsConfig(value: unknown): ApsConfig {
       dailyHours: clampNumber(settings.dailyHours, 1, 24, defaults.settings.dailyHours),
       lunchStart: isTimeText(settings.lunchStart) ? String(settings.lunchStart) : defaults.settings.lunchStart,
       lunchMinutes: clampNumber(settings.lunchMinutes, 0, 240, defaults.settings.lunchMinutes),
-      priorityRule: settings.priorityRule === 'MANUAL' ? 'MANUAL' : 'EDD'
+      priorityRule: settings.priorityRule === 'MANUAL' ? 'MANUAL' : 'EDD',
+      calendarDays: arrayRows(settings.calendarDays).map((day) => normalizeApsCalendarDay(day, defaults.settings)).filter((day) => day.date)
     },
     operators: (operators.length ? operators : defaults.operators).map((operator) => ({
       ...operator,
@@ -7622,6 +7828,57 @@ function normalizeApsWorkCenter(value: unknown): ApsWorkCenter {
     shift: String(row.shift || row.calendar || '1 turno'),
     maintenance: String(row.maintenance || '')
   };
+}
+
+function normalizeApsCalendarDay(value: unknown, settings: ApsSettings): ApsCalendarDay {
+  const row = asRow(value);
+  const date = isDateText(row.date) ? String(row.date) : '';
+  return {
+    date,
+    productive: row.productive === false ? false : true,
+    startTime: isTimeText(row.startTime) ? String(row.startTime) : settings.workdayStart,
+    dailyHours: clampNumber(row.dailyHours, 0, 24, settings.dailyHours),
+    lunchStart: isTimeText(row.lunchStart) ? String(row.lunchStart) : settings.lunchStart,
+    lunchMinutes: clampNumber(row.lunchMinutes, 0, 240, settings.lunchMinutes),
+    note: String(row.note || '')
+  };
+}
+
+function upsertApsCalendarDay(days: ApsCalendarDay[], day: ApsCalendarDay, settings: ApsSettings) {
+  const next = [
+    ...arrayRows(days).map((row) => normalizeApsCalendarDay(row, settings)).filter((item) => item.date && item.date !== day.date),
+    day
+  ];
+  return next.sort((left, right) => left.date.localeCompare(right.date));
+}
+
+function buildApsCalendarMonths() {
+  const today = new Date();
+  const startDate = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const endDate = new Date(today.getFullYear(), today.getMonth() + 12, today.getDate());
+  const months: Array<{ key: string; label: string; blanks: number; days: Date[] }> = [];
+
+  for (let offset = 0; offset < 12; offset += 1) {
+    const monthStart = new Date(today.getFullYear(), today.getMonth() + offset, 1);
+    const nextMonth = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 1);
+    const firstVisible = monthStart < startDate ? startDate : monthStart;
+    const days: Date[] = [];
+    for (let cursor = new Date(firstVisible); cursor < nextMonth && cursor < endDate; cursor = addDays(cursor, 1)) {
+      days.push(new Date(cursor));
+    }
+    months.push({
+      key: `${monthStart.getFullYear()}-${String(monthStart.getMonth() + 1).padStart(2, '0')}`,
+      label: monthStart.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }),
+      blanks: days[0]?.getDay() || 0,
+      days
+    });
+  }
+
+  return months;
+}
+
+function weekdayShortLabel(date: Date) {
+  return ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab'][date.getDay()] || '';
 }
 
 function normalizeApsOperator(value: unknown): ApsOperator {
@@ -8108,12 +8365,14 @@ function exportApsScheduleCsv(schedule: ApsSchedule) {
 }
 
 function normalizeApsSettings(settings: ApsSettings): ApsSettings {
+  const defaults = defaultApsConfig().settings;
   return {
     workdayStart: isTimeText(settings.workdayStart) ? settings.workdayStart : '08:00',
     dailyHours: clampNumber(settings.dailyHours, 1, 24, 8),
     lunchStart: isTimeText(settings.lunchStart) ? settings.lunchStart : '12:00',
     lunchMinutes: clampNumber(settings.lunchMinutes, 0, 240, 60),
-    priorityRule: settings.priorityRule === 'MANUAL' ? 'MANUAL' : 'EDD'
+    priorityRule: settings.priorityRule === 'MANUAL' ? 'MANUAL' : 'EDD',
+    calendarDays: arrayRows(settings.calendarDays).map((day) => normalizeApsCalendarDay(day, defaults)).filter((day) => day.date)
   };
 }
 
@@ -8132,15 +8391,17 @@ function apsDueDate(value: string, settings: ApsSettings) {
 function normalizeApsWorkStart(value: Date, settings: ApsSettings) {
   let date = new Date(value);
   if (Number.isNaN(date.getTime())) date = new Date();
-  while (isWeekend(date)) {
-    date = new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1);
+
+  for (let guard = 0; guard < 730; guard += 1) {
+    const periods = apsWorkPeriods(date, settings);
+    for (const period of periods) {
+      if (date < period.start) return new Date(period.start);
+      if (date >= period.start && date < period.end) return date;
+    }
+    date = apsNextCalendarDay(date);
   }
-  const periods = apsWorkPeriods(date, settings);
-  for (const period of periods) {
-    if (date < period.start) return new Date(period.start);
-    if (date >= period.start && date < period.end) return date;
-  }
-  return apsNextWorkDayStart(date, settings);
+
+  return date;
 }
 
 function addApsWorkingHours(start: Date, hours: number, settings: ApsSettings) {
@@ -8168,14 +8429,17 @@ function addApsWorkingHours(start: Date, hours: number, settings: ApsSettings) {
 }
 
 function apsWorkPeriods(value: Date, settings: ApsSettings) {
-  const [startHour, startMinute] = settings.workdayStart.split(':').map(Number);
-  const [lunchHour, lunchMinute] = settings.lunchStart.split(':').map(Number);
+  const daySettings = apsEffectiveCalendarDay(value, settings);
+  if (!daySettings.productive || daySettings.dailyHours <= 0) return [];
+
+  const [startHour, startMinute] = daySettings.startTime.split(':').map(Number);
+  const [lunchHour, lunchMinute] = daySettings.lunchStart.split(':').map(Number);
   const dayStart = new Date(value.getFullYear(), value.getMonth(), value.getDate(), startHour, startMinute, 0, 0);
   const lunchStart = new Date(value.getFullYear(), value.getMonth(), value.getDate(), lunchHour, lunchMinute, 0, 0);
-  const lunchEnd = new Date(lunchStart.getTime() + settings.lunchMinutes * 60000);
-  const totalMinutes = settings.dailyHours * 60;
+  const lunchEnd = new Date(lunchStart.getTime() + daySettings.lunchMinutes * 60000);
+  const totalMinutes = daySettings.dailyHours * 60;
 
-  if (settings.lunchMinutes <= 0 || lunchStart <= dayStart) {
+  if (daySettings.lunchMinutes <= 0 || lunchStart <= dayStart) {
     return [{ start: dayStart, end: new Date(dayStart.getTime() + totalMinutes * 60000) }];
   }
   const beforeLunchMinutes = Math.min(totalMinutes, Math.max(0, (lunchStart.getTime() - dayStart.getTime()) / 60000));
@@ -8192,11 +8456,31 @@ function apsWorkPeriods(value: Date, settings: ApsSettings) {
 
 function apsNextWorkDayStart(value: Date, settings: ApsSettings) {
   let next = new Date(value.getFullYear(), value.getMonth(), value.getDate() + 1);
-  while (isWeekend(next)) {
-    next.setDate(next.getDate() + 1);
+  for (let guard = 0; guard < 730; guard += 1) {
+    const periods = apsWorkPeriods(next, settings);
+    if (periods.length) return new Date(periods[0].start);
+    next = apsNextCalendarDay(next);
   }
-  const periods = apsWorkPeriods(next, settings);
-  return new Date(periods[0].start);
+  return next;
+}
+
+function apsNextCalendarDay(value: Date) {
+  return new Date(value.getFullYear(), value.getMonth(), value.getDate() + 1);
+}
+
+function apsEffectiveCalendarDay(value: Date, settings: ApsSettings): ApsCalendarDay {
+  const date = dateInputValue(value);
+  const explicit = (settings.calendarDays || []).find((day) => day.date === date);
+  if (explicit) return normalizeApsCalendarDay(explicit, settings);
+  return {
+    date,
+    productive: !isWeekend(value),
+    startTime: settings.workdayStart,
+    dailyHours: settings.dailyHours,
+    lunchStart: settings.lunchStart,
+    lunchMinutes: settings.lunchMinutes,
+    note: ''
+  };
 }
 
 function defaultApsOperation(code: string, label: string): ApsOperation {
