@@ -387,6 +387,37 @@ type ApsSegment = {
   offsetPercent: number;
   widthPercent: number;
 };
+type DhtmlxGanttTask = {
+  id: string;
+  text: string;
+  start_date: Date;
+  end_date: Date;
+  parent?: string;
+  open?: boolean;
+  progress?: number;
+  resource?: string;
+  durationHours?: number;
+  typeClass?: string;
+  readonly?: boolean;
+  type?: string;
+};
+type DhtmlxGanttLink = {
+  id: string;
+  source: string;
+  target: string;
+  type: string;
+};
+type DhtmlxGanttApi = {
+  config: Record<string, unknown>;
+  templates: Record<string, unknown>;
+  plugins?: (plugins: Record<string, boolean>) => void;
+  clearAll: () => void;
+  init: (container: HTMLElement) => void;
+  parse: (data: { data: DhtmlxGanttTask[]; links: DhtmlxGanttLink[] }) => void;
+  render?: () => void;
+  setSkin?: (skin: string) => void;
+  license?: string;
+};
 type ApsUtilization = {
   code: string;
   name: string;
@@ -428,6 +459,13 @@ type ApsSchedule = {
   rangeEnd: Date;
   metrics: ApsMetrics;
 };
+
+declare global {
+  interface Window {
+    gantt?: DhtmlxGanttApi;
+    __dhtmlxGanttPromise?: Promise<DhtmlxGanttApi>;
+  }
+}
 
 const reasonLabels: Record<string, string> = {
   purchase: 'Compras',
@@ -4541,29 +4579,7 @@ export function ApsScreen({ user, realtimeRefreshKey = 0, configFocus }: ModuleP
             <strong>Fim previsto {formatLocalDateTime(schedule.rangeEnd)}</strong>
             <strong>{formatInteger(schedule.metrics.lateOrders)} OPs em atraso</strong>
           </div>
-          <div className="aps-gantt-grid-react">
-            {apsGanttGroups(schedule).map((group) => (
-              <div className="aps-gantt-lane-react" key={group.resourceCode}>
-                <div className="gantt-label">
-                  <strong>{group.resourceCode}</strong>
-                  <span>{group.segments.length} barra(s)</span>
-                </div>
-                <div className="gantt-track aps-gantt-track-react">
-                  {group.segments.map((segment, index) => (
-                    <div
-                      className={`gantt-bar aps-bar-react ${segment.type === 'setup' ? 'setup' : segment.type === 'late' ? 'late' : 'production'}`}
-                      key={`${segment.resourceCode}-${segment.row.orderId}-${segment.row.operationCode}-${index}`}
-                      style={{ left: `${segment.offsetPercent}%`, width: `${segment.widthPercent}%` }}
-                      title={apsSegmentTitle(segment)}
-                    >
-                      {segment.type === 'setup' ? 'Setup' : String(segment.row.orderNumber || '-')}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
-            {!schedule.rows.length && <div className="chart-empty">Nenhuma operacao pendente para programar.</div>}
-          </div>
+          <DhtmlxApsGantt schedule={schedule} />
         </section>
 
         <section className="module-panel">
@@ -4731,6 +4747,96 @@ function apsConfigFocusSubtitle(focus: ApsConfigFocus) {
   if (focus === 'calendar') return 'Jornada de trabalho, almoco, horas produtivas e regra de prioridade.';
   if (focus === 'centers') return 'Centros de trabalho, maquinas, capacidade, eficiencia e calendario.';
   return 'Operacoes puxadas dos status, tempos, lote, operadores e centros permitidos.';
+}
+
+const DHTMLX_GANTT_JS_URL = 'https://cdn.dhtmlx.com/gantt/edge/dhtmlxgantt.js';
+const DHTMLX_GANTT_CSS_URL = 'https://cdn.dhtmlx.com/gantt/edge/dhtmlxgantt.css';
+
+function DhtmlxApsGantt({ schedule }: { schedule: ApsSchedule }) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [state, setState] = useState<'loading' | 'ready' | 'fallback'>('loading');
+  const [message, setMessage] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    const container = containerRef.current;
+    if (!container) return;
+
+    if (!schedule.rows.length) {
+      setState('ready');
+      setMessage('');
+      container.innerHTML = '';
+      return;
+    }
+
+    setState('loading');
+    setMessage('Carregando DHTMLX Gantt Community...');
+
+    loadDhtmlxGantt()
+      .then((gantt) => {
+        if (cancelled || !containerRef.current) return;
+        configureDhtmlxApsGantt(gantt);
+        containerRef.current.innerHTML = '';
+        gantt.clearAll();
+        gantt.init(containerRef.current);
+        gantt.parse(buildDhtmlxApsGanttData(schedule));
+        setState('ready');
+        setMessage('DHTMLX Gantt Community');
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setState('fallback');
+        setMessage(error instanceof Error ? error.message : 'Nao foi possivel carregar o DHTMLX Gantt.');
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [schedule]);
+
+  if (!schedule.rows.length) {
+    return <div className="chart-empty">Nenhuma operacao pendente para programar.</div>;
+  }
+
+  return (
+    <div className="dhtmlx-aps-gantt-shell">
+      <div className="dhtmlx-aps-gantt-status">
+        <span>{state === 'fallback' ? 'Gantt interno' : message}</span>
+        {state === 'fallback' && <strong>{message}</strong>}
+      </div>
+      <div className={`dhtmlx-aps-gantt-frame ${state === 'fallback' ? 'is-hidden' : ''}`} ref={containerRef} />
+      {state === 'loading' && <div className="chart-empty">Carregando Gantt profissional...</div>}
+      {state === 'fallback' && <ApsInternalGantt schedule={schedule} />}
+    </div>
+  );
+}
+
+function ApsInternalGantt({ schedule }: { schedule: ApsSchedule }) {
+  return (
+    <div className="aps-gantt-grid-react">
+      {apsGanttGroups(schedule).map((group) => (
+        <div className="aps-gantt-lane-react" key={group.resourceCode}>
+          <div className="gantt-label">
+            <strong>{group.resourceCode}</strong>
+            <span>{group.segments.length} barra(s)</span>
+          </div>
+          <div className="gantt-track aps-gantt-track-react">
+            {group.segments.map((segment, index) => (
+              <div
+                className={`gantt-bar aps-bar-react ${segment.type === 'setup' ? 'setup' : segment.type === 'late' ? 'late' : 'production'}`}
+                key={`${segment.resourceCode}-${segment.row.orderId}-${segment.row.operationCode}-${index}`}
+                style={{ left: `${segment.offsetPercent}%`, width: `${segment.widthPercent}%` }}
+                title={apsSegmentTitle(segment)}
+              >
+                {segment.type === 'setup' ? 'Setup' : String(segment.row.orderNumber || '-')}
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+      {!schedule.rows.length && <div className="chart-empty">Nenhuma operacao pendente para programar.</div>}
+    </div>
+  );
 }
 
 function ApsProductiveCalendarEditor({
@@ -9024,6 +9130,137 @@ function apsGanttGroups(schedule: ApsSchedule) {
     grouped.get(segment.resourceCode)?.push(segment);
   }
   return Array.from(grouped.entries()).map(([resourceCode, segments]) => ({ resourceCode, segments }));
+}
+
+function loadDhtmlxGantt() {
+  if (typeof window === 'undefined' || typeof document === 'undefined') {
+    return Promise.reject(new Error('DHTMLX Gantt disponivel apenas no navegador.'));
+  }
+  if (window.gantt) return Promise.resolve(window.gantt);
+  if (window.__dhtmlxGanttPromise) return window.__dhtmlxGanttPromise;
+
+  ensureStylesheet('dhtmlx-gantt-community-css', DHTMLX_GANTT_CSS_URL);
+  window.__dhtmlxGanttPromise = new Promise<DhtmlxGanttApi>((resolve, reject) => {
+    const existing = document.getElementById('dhtmlx-gantt-community-js') as HTMLScriptElement | null;
+    const finish = () => window.gantt ? resolve(window.gantt) : reject(new Error('DHTMLX Gantt nao inicializou.'));
+    if (existing) {
+      existing.addEventListener('load', finish, { once: true });
+      existing.addEventListener('error', () => reject(new Error('Falha ao carregar o DHTMLX Gantt. Usando Gantt interno.')), { once: true });
+      return;
+    }
+
+    const script = document.createElement('script');
+    script.id = 'dhtmlx-gantt-community-js';
+    script.src = DHTMLX_GANTT_JS_URL;
+    script.async = true;
+    script.onload = finish;
+    script.onerror = () => reject(new Error('Falha ao carregar o DHTMLX Gantt. Usando Gantt interno.'));
+    document.head.appendChild(script);
+  });
+  return window.__dhtmlxGanttPromise;
+}
+
+function ensureStylesheet(id: string, href: string) {
+  if (document.getElementById(id)) return;
+  const link = document.createElement('link');
+  link.id = id;
+  link.rel = 'stylesheet';
+  link.href = href;
+  document.head.appendChild(link);
+}
+
+function configureDhtmlxApsGantt(gantt: DhtmlxGanttApi) {
+  try {
+    gantt.plugins?.({ tooltip: true, marker: true });
+  } catch {
+    // Plugins variam por versao; o Gantt principal continua funcional.
+  }
+  gantt.config.readonly = true;
+  gantt.config.grid_width = 420;
+  gantt.config.row_height = 30;
+  gantt.config.bar_height = 18;
+  gantt.config.duration_unit = 'hour';
+  gantt.config.scale_height = 48;
+  gantt.config.fit_tasks = true;
+  gantt.config.open_tree_initially = true;
+  gantt.config.columns = [
+    { name: 'text', label: 'Operacao', tree: true, width: 230 },
+    { name: 'resource', label: 'Recurso', align: 'center', width: 90 },
+    { name: 'durationHours', label: 'h', align: 'center', width: 55 }
+  ];
+  gantt.config.scales = [
+    { unit: 'day', step: 1, format: '%d/%m' },
+    { unit: 'hour', step: 2, format: '%H:%i' }
+  ];
+  gantt.templates.task_class = (_start: Date, _end: Date, task: DhtmlxGanttTask) => task.typeClass || '';
+  gantt.templates.tooltip_text = (_start: Date, _end: Date, task: DhtmlxGanttTask) => [
+    `<b>${escapeHtml(task.text || '')}</b>`,
+    task.resource ? `Recurso: ${escapeHtml(task.resource)}` : '',
+    task.durationHours ? `Tempo: ${escapeHtml(formatNumber(task.durationHours))} h` : ''
+  ].filter(Boolean).join('<br>');
+}
+
+function buildDhtmlxApsGanttData(schedule: ApsSchedule) {
+  const data: DhtmlxGanttTask[] = [];
+  const links: DhtmlxGanttLink[] = [];
+  const taskByRow = new Map<ApsScheduleRow, string>();
+
+  for (const group of apsGanttGroups(schedule)) {
+    const parentId = `resource:${group.resourceCode}`;
+    data.push({
+      id: parentId,
+      text: group.resourceCode,
+      start_date: schedule.rangeStart,
+      end_date: schedule.rangeEnd,
+      open: true,
+      readonly: true,
+      type: 'project',
+      resource: group.resourceCode
+    });
+
+    group.segments
+      .slice()
+      .sort((left, right) => left.startAt.getTime() - right.startAt.getTime())
+      .forEach((segment, index) => {
+        const row = segment.row;
+        const id = `task:${group.resourceCode}:${row.orderId}:${row.operationCode}:${segment.type}:${index}`;
+        if (segment.type !== 'setup') taskByRow.set(row, id);
+        data.push({
+          id,
+          parent: parentId,
+          text: segment.type === 'setup'
+            ? `Setup | ${String(row.orderNumber || row.productionOrder || '-')}`
+            : `${String(row.orderNumber || '-')}: ${row.operationLabel}`,
+          start_date: segment.startAt,
+          end_date: segment.endAt,
+          progress: segment.type === 'setup' ? 0.1 : 0.35,
+          resource: group.resourceCode,
+          durationHours: Math.round(((segment.endAt.getTime() - segment.startAt.getTime()) / 3600000) * 10) / 10,
+          typeClass: `dhx-aps-${segment.type}`,
+          readonly: true
+        });
+      });
+  }
+
+  const rowsByOrder = new Map<string, ApsScheduleRow[]>();
+  for (const row of schedule.rows) {
+    const key = String(row.orderId || row.orderNumber || '');
+    if (!rowsByOrder.has(key)) rowsByOrder.set(key, []);
+    rowsByOrder.get(key)?.push(row);
+  }
+  rowsByOrder.forEach((rows, orderKey) => {
+    rows
+      .slice()
+      .sort((left, right) => left.startAt.getTime() - right.startAt.getTime())
+      .forEach((row, index, sortedRows) => {
+        if (index === 0) return;
+        const source = taskByRow.get(sortedRows[index - 1]);
+        const target = taskByRow.get(row);
+        if (source && target) links.push({ id: `link:${orderKey}:${index}`, source, target, type: '0' });
+      });
+  });
+
+  return { data, links };
 }
 
 function apsSegmentTitle(segment: ApsSegment) {
