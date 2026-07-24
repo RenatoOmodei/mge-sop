@@ -384,7 +384,7 @@ export function App() {
   const [loginError, setLoginError] = useState('');
   const [loginBusy, setLoginBusy] = useState(false);
   const [currentScreen, setCurrentScreenState] = useState<ScreenKey>('orders');
-  const [openModule, setOpenModule] = useState<ScreenMeta['module']>('sop');
+  const [openModule, setOpenModule] = useState<ScreenMeta['module'] | ''>('sop');
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [notificationsLoading, setNotificationsLoading] = useState(false);
@@ -900,7 +900,7 @@ export function App() {
           <img className="brand-logo sidebar-logo" src="/mge-logo.png" alt="MGE air" />
           <div>
             <strong>{APP_NAME}</strong>
-            <span>{health?.dbProvider === 'postgres' ? 'PostgreSQL' : 'Servidor integrado'}</span>
+            <span>MGE Smart System</span>
           </div>
         </div>
 
@@ -912,7 +912,7 @@ export function App() {
             const isOpen = openModule === moduleKey;
             return (
               <section className={`nav-module ${isOpen ? 'is-open' : ''}`} key={moduleKey}>
-                <button className="nav-module-toggle" type="button" onClick={() => setOpenModule(moduleKey)}>
+                <button className="nav-module-toggle" type="button" onClick={() => setOpenModule((current) => current === moduleKey ? '' : moduleKey)}>
                   {moduleScreens.some((screen) => Boolean(screenAlerts[screen.key])) && (
                     <span className="nav-alert-dot" aria-label="Alteracao nao visualizada" />
                   )}

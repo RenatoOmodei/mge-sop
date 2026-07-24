@@ -2522,7 +2522,7 @@ export function BillingScreen({ user, realtimeRefreshKey = 0 }: ModuleProps) {
             </button>
           )}
           onRowClick={(row) => openBillingItem(row, 'released')}
-          rowClass={(row) => billingSourceType(row) === 'thirdParty' && !String(row.purchaseOrderNumber || '').trim() ? 'row-warning' : ''}
+          rowClass={(row) => `row-billing-pending${billingSourceType(row) === 'thirdParty' && !String(row.purchaseOrderNumber || '').trim() ? ' row-warning' : ''}`}
         />
       </section>
 

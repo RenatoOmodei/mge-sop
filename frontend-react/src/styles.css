@@ -225,7 +225,7 @@ button:disabled {
 .nav-module-toggle:hover,
 .nav-module.is-open .nav-module-toggle {
   color: #ffffff;
-  background: #2c3d58;
+  background: #2f496c;
 }
 
 .erp-shell.env-homolog .nav-module-toggle:hover,
@@ -241,6 +241,21 @@ button:disabled {
 
 .nav-module.is-open .nav-module-items {
   display: grid;
+}
+
+.nav-module.is-open .nav-item {
+  color: #edf6ff;
+  background: #263f5e;
+}
+
+.nav-module.is-open .nav-item:hover {
+  color: #ffffff;
+  background: #34577f;
+}
+
+.nav-module.is-open .nav-item.active {
+  color: #ffffff;
+  background: #3d638e;
 }
 
 .nav-item {
@@ -259,7 +274,7 @@ button:disabled {
 
 .nav-item:hover {
   color: #ffffff;
-  background: #203048;
+  background: #34577f;
 }
 
 .erp-shell.env-homolog .nav-item:hover {
@@ -268,10 +283,19 @@ button:disabled {
 
 .nav-item.active {
   color: #ffffff;
-  background: var(--nav-2);
+  background: #3d638e;
 }
 
 .erp-shell.env-homolog .nav-item.active {
+  background: #b91c1c;
+}
+
+.erp-shell.env-homolog .nav-module.is-open .nav-item {
+  background: #8f1d1d;
+}
+
+.erp-shell.env-homolog .nav-module.is-open .nav-item:hover,
+.erp-shell.env-homolog .nav-module.is-open .nav-item.active {
   background: #b91c1c;
 }
 
@@ -2526,6 +2550,11 @@ button.mobile-alert-chip {
 .generic-table tr.row-warning td {
   background: #fff5dd;
   color: #5b3d00;
+}
+
+.generic-table tr.row-billing-pending td {
+  background: #fff7cc;
+  color: #4a3a00;
 }
 
 .generic-table tr.row-muted td {
@@ -5356,6 +5385,11 @@ textarea.input {
   .generic-table tbody tr.row-warning {
     border-color: #fedc87;
     background: #fff8e6;
+  }
+
+  .generic-table tbody tr.row-billing-pending {
+    border-color: #facc15;
+    background: #fff7cc;
   }
 
   .generic-table tbody tr.row-danger {
