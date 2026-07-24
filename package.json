@@ -7,7 +7,17 @@
     "start": "node src/server.js",
     "check": "node --check src/server.js && node --check public/app.js && node --check public/service-worker.js",
     "build": "npm run build:netlify",
-    "build:netlify": "node scripts/build-netlify.js"
+    "build:netlify": "node scripts/build-netlify.js",
+    "build:netlify:legacy": "node scripts/build-netlify.js",
+    "build:netlify:react": "node scripts/run-react-tool.js install && node scripts/run-react-tool.js build && node scripts/build-netlify-react.js",
+    "rollback:build": "node scripts/build-netlify.js && node scripts/verify-legacy-build.js --require-backend",
+    "rollback:deploy:netlify": "npm run rollback:build && netlify deploy --prod --dir dist-netlify",
+    "test:realtime": "node scripts/test-realtime-websocket.js",
+    "homolog:local": "node scripts/run-react-tool.js dev",
+    "react:install": "node scripts/run-react-tool.js install",
+    "react:dev": "node scripts/run-react-tool.js dev",
+    "react:build": "node scripts/run-react-tool.js build",
+    "react:preview": "node scripts/run-react-tool.js preview"
   },
   "engines": {
     "node": ">=22"

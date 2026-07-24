@@ -2,28 +2,28 @@ const fs = require('fs');
 const path = require('path');
 
 const rootDir = path.resolve(__dirname, '..');
-const publicDir = path.join(rootDir, 'public');
-const outputDir = path.join(rootDir, 'dist-netlify');
+const reactBuildDir = path.join(rootDir, 'dist-react');
+const outputDir = path.resolve(process.env.NETLIFY_REACT_OUTPUT_DIR || path.join(rootDir, 'dist-netlify-react'));
 const netlifyContext = String(process.env.CONTEXT || '').trim();
 const appEnvironment = String(process.env.SOP_ENV || (netlifyContext === 'production' ? 'production' : 'homolog')).trim();
 const environmentBackendUrl = appEnvironment === 'production'
   ? process.env.SOP_PRODUCTION_BACKEND_URL
   : process.env.SOP_HOMOLOG_BACKEND_URL;
-const rawBackendUrl = String(process.env.SOP_BACKEND_URL || environmentBackendUrl || '').trim().replace(/\/+$/, '');
+const rawBackendUrl = String(environmentBackendUrl || process.env.SOP_BACKEND_URL || '').trim().replace(/\/+$/, '');
 const placeholderBackendPattern = /^https?:\/\/(?:url-real-do-backend|url-do-backend|url-backend|backend-url)(?:\/.*)?$/i;
 const backendUrl = placeholderBackendPattern.test(rawBackendUrl) ? '' : rawBackendUrl;
 
-if (!fs.existsSync(publicDir)) {
-  throw new Error(`Pasta public nao encontrada: ${publicDir}`);
+if (!fs.existsSync(path.join(reactBuildDir, 'index.html'))) {
+  throw new Error(`Build React nao encontrado em ${reactBuildDir}. Rode npm run react:build antes.`);
 }
 
 fs.rmSync(outputDir, { recursive: true, force: true });
-fs.cpSync(publicDir, outputDir, { recursive: true });
+fs.cpSync(reactBuildDir, outputDir, { recursive: true });
 
 const runtimeConfig = {
   apiBaseUrl: '',
   realtimeEnabled: false,
-  deployedOn: 'netlify',
+  deployedOn: 'netlify-react',
   environment: appEnvironment,
   builtAt: new Date().toISOString()
 };
@@ -52,10 +52,10 @@ if (rawBackendUrl && !backendUrl) {
 }
 
 if (!backendUrl) {
-  console.warn('SOP_BACKEND_URL nao configurada. O frontend sera publicado, mas login/API nao funcionarao ate informar a URL do backend.');
+  console.warn('SOP_BACKEND_URL nao configurada. O frontend React sera publicado, mas login/API nao funcionarao ate informar a URL do backend.');
 }
 
-console.log(`Build Netlify gerado em: ${outputDir}`);
+console.log(`Build Netlify React gerado em: ${outputDir}`);
 
 function stampServiceWorkerCache(dir, id) {
   const serviceWorkerFile = path.join(dir, 'service-worker.js');

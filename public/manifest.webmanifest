@@ -1,21 +1,22 @@
 {
-  "name": "MGE S&OP",
-  "short_name": "S&OP",
+  "name": "Synapse",
+  "short_name": "Synapse",
   "id": "/",
-  "description": "Sistema S&OP integrado da MGE",
-  "start_url": "/",
+  "description": "MGE Smart System",
+  "start_url": "/?source=pwa",
   "scope": "/",
   "display": "standalone",
-  "display_override": ["standalone", "browser"],
+  "display_override": ["window-controls-overlay", "standalone", "fullscreen", "browser"],
+  "orientation": "any",
   "background_color": "#f4f6f9",
   "theme_color": "#172033",
+  "categories": ["business", "productivity"],
+  "lang": "pt-BR",
+  "prefer_related_applications": false,
+  "launch_handler": {
+    "client_mode": ["navigate-existing", "auto"]
+  },
   "icons": [
-    {
-      "src": "/mge-logo.png",
-      "sizes": "137x89",
-      "type": "image/png",
-      "purpose": "any"
-    },
     {
       "src": "/pwa-icon-192.png",
       "sizes": "192x192",

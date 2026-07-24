@@ -69,6 +69,57 @@ button:disabled {
   font-weight: 700;
 }
 
+.install-app-button {
+  white-space: nowrap;
+}
+
+.install-app-button.primary {
+  box-shadow: 0 0 0 3px rgba(13, 110, 253, 0.14);
+}
+
+.install-app-panel {
+  position: fixed;
+  right: 18px;
+  bottom: 84px;
+  z-index: 1190;
+  width: min(360px, calc(100vw - 32px));
+  padding: 12px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+}
+
+.install-app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.install-app-header strong {
+  font-size: 14px;
+}
+
+.install-app-header .icon-button {
+  min-height: 30px;
+  width: 30px;
+  height: 30px;
+}
+
+.install-app-panel p {
+  margin: 10px 0 12px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.install-app-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .login-screen {
   min-height: 100vh;
   display: grid;

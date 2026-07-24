@@ -216,6 +216,7 @@ function translateSql(sql) {
     .replace(/char\((\d+)\)/gi, 'chr($1)')
     .replace(/(\b[a-zA-Z_][a-zA-Z0-9_]*\b)\s+GLOB\s+'\?\?\?\?-\?\?-\?\?'/g, (_match, column) => `${column} ~ '^\\d{4}-\\d{2}-\\d{2}$'`)
     .replace(/julianday\(original_delivery_date\)\s*-\s*julianday\(entry_date\)/gi, '(original_delivery_date::date - entry_date::date)')
+    .replace(/julianday\(finalization_date\)\s*-\s*julianday\(original_delivery_date\)/gi, '(finalization_date::date - original_delivery_date::date)')
     .replace(/julianday\(date\('now',\s*'localtime'\)\)\s*-\s*julianday\(original_delivery_date\)/gi, '(CURRENT_DATE - original_delivery_date::date)')
     .replace(/date\('now',\s*'localtime',\s*\?\)/gi, "to_char((CURRENT_DATE + (?::text)::interval), 'YYYY-MM-DD')")
     .replace(/date\('now',\s*'localtime'\)/gi, "to_char(CURRENT_DATE, 'YYYY-MM-DD')")

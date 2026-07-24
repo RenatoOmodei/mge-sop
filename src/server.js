@@ -48,7 +48,10 @@ const USER_PREFERENCE_KEYS = new Set([
   'reportTableState',
   'pcpTableState',
   'billingHistoryState',
-  'loadingTableState'
+  'loadingTableState',
+  'thirdPartyTableState',
+  'sequencingUiState',
+  'apsUiState'
 ]);
 
 function loadHttpsOptions(settings) {
@@ -313,6 +316,200 @@ function buildOperationalAiInsights(db, session) {
   };
 }
 
+function buildAiWorkbench(db, session) {
+  const sources = db.listAiKnowledgeSources({ limit: 120 });
+  const trainingRuns = db.listAiTrainingRuns(80);
+  const analysisHistory = db.listAiAnalysisHistory(80);
+  const insights = buildOperationalAiInsights(db, session);
+
+  return {
+    generatedAt: new Date().toISOString(),
+    mode: 'decision-support-workbench',
+    llmProvider: process.env.LLM_PROVIDER || '',
+    llmConfigured: Boolean(process.env.OPENAI_API_KEY || process.env.LLM_API_KEY),
+    metrics: {
+      knowledgeSources: sources.length,
+      activeSources: sources.filter((source) => source.status === 'active').length,
+      trainingRuns: trainingRuns.length,
+      validatedRuns: trainingRuns.filter((run) => run.status === 'validated').length,
+      analyses: analysisHistory.length
+    },
+    insights,
+    knowledgeSources: sources,
+    trainingRuns,
+    analysisHistory
+  };
+}
+
+function buildAiDecisionAnalysis(db, session, input = {}) {
+  const prompt = String(input.prompt || '').trim();
+  const contextScope = sanitizeServerAiScope(input.contextScope || input.context_scope);
+  if (!prompt) {
+    throw new Error('Informe uma pergunta ou objetivo para a IA.');
+  }
+
+  const context = aiOperationalContext(db, session, contextScope);
+  const sources = matchAiKnowledgeSources(prompt, db.listAiKnowledgeSources({ activeOnly: true, limit: 80 }), contextScope);
+  const topDemand = maxBy(context.forecasts, (item) => Number(item.forecastNext3Months) || 0);
+  const topRisk = maxBy(context.forecasts, (item) => Number(item.predictedLateOrders) || 0);
+  const lateOrders = context.orders.filter((order) => Number(order.daysLate) > 0);
+  const dueSoon = context.orders.filter((order) => {
+    const days = daysUntil(order.originalDeliveryDate);
+    return days >= 0 && days <= 7;
+  });
+  const overduePcp = context.pcpIssues.filter((issue) => issue.expectedResolutionDate && issue.expectedResolutionDate < dateOnly(new Date()));
+  const releasedBilling = context.billingOrders.length + context.billingThirdParty.length;
+  const openQualityAlerts = context.qualityAlerts.filter((alert) => String(alert.status || 'open') === 'open');
+
+  const riskLevel = lateOrders.length || overduePcp.length || Number(topRisk?.predictedLateOrders || 0) > 0
+    ? 'alto'
+    : dueSoon.length || releasedBilling || openQualityAlerts.length
+      ? 'moderado'
+      : 'baixo';
+  const confidence = aiConfidenceScore({ sources, forecasts: context.forecasts, orders: context.orders, pcpIssues: context.pcpIssues });
+
+  const response = [
+    `Analise gerada para: ${prompt}`,
+    '',
+    `Nivel de risco operacional: ${riskLevel}.`,
+    `Base consultada: ${context.orders.length} pedido(s) ativo(s), ${context.forecasts.length} previsao(oes), ${context.pcpIssues.length} pendencia(s) PCP, ${releasedBilling} item(ns) aguardando faturamento e ${openQualityAlerts.length} alerta(s) de qualidade ativo(s).`,
+    '',
+    'Principais sinais:',
+    lateOrders.length ? `- ${lateOrders.length} pedido(s) ativo(s) estao em atraso.` : '- Nao ha pedidos ativos em atraso pelo criterio atual.',
+    dueSoon.length ? `- ${dueSoon.length} pedido(s) vencem em ate 7 dias.` : '- Nao ha pedidos vencendo em ate 7 dias.',
+    overduePcp.length ? `- ${overduePcp.length} pendencia(s) PCP estao vencidas.` : '- Pendencias PCP sem vencimento critico detectado.',
+    topDemand ? `- Maior demanda prevista: ${topDemand.productLine || '-'} ${topDemand.capacityLabel || ''}, com ${formatNumber(topDemand.forecastNext3Months)} maquina(s) nos proximos 3 meses.` : '- Ainda ha pouco historico para previsao de demanda por produto.',
+    topRisk && Number(topRisk.predictedLateOrders) > 0 ? `- Linha com maior risco previsto: ${topRisk.productLine || '-'} ${topRisk.capacityLabel || ''}.` : '- Nenhuma linha/capacidade com risco previsto relevante.',
+    '',
+    'Recomendacoes:',
+    lateOrders.length ? '- Priorizar replanejamento dos pedidos em atraso e registrar acao responsavel no historico.' : '- Manter foco preventivo nos pedidos proximos do prazo original.',
+    overduePcp.length ? '- Converter pendencias PCP vencidas em plano de acao com comprador/engenharia e nova data prometida.' : '- Usar pendencias PCP abertas como entrada para o sequenciamento e APS.',
+    releasedBilling ? '- Validar rapidamente itens liberados para faturamento para reduzir tempo parado entre producao e expedicao.' : '- Acompanhar liberacao para faturamento como indicador de fluxo.',
+    openQualityAlerts.length ? '- Consultar alertas de qualidade antes de liberar itens similares para producao.' : '- Manter qualidade conectada aos pedidos para capturar riscos recorrentes.',
+    sources.length ? '- A resposta considerou bases internas cadastradas no modulo IA.' : '- Cadastre procedimentos e decisoes padrao na base de conhecimento para aumentar a qualidade das respostas.',
+    '',
+    'Proximo passo sugerido:',
+    aiNextStepForRisk(riskLevel),
+    '',
+    sources.length ? `Bases usadas: ${sources.map((source) => source.title).join('; ')}` : 'Bases usadas: nenhuma base interna relacionada encontrada.'
+  ].join('\n');
+
+  return {
+    prompt,
+    contextScope,
+    mode: 'rules-engine+llm-ready',
+    response,
+    confidence,
+    riskLevel,
+    sources,
+    metrics: {
+      activeOrders: context.orders.length,
+      lateOrders: lateOrders.length,
+      dueSoonOrders: dueSoon.length,
+      openPcp: context.pcpIssues.length,
+      overduePcp: overduePcp.length,
+      billingReleased: releasedBilling,
+      qualityAlerts: openQualityAlerts.length,
+      forecasts: context.forecasts.length
+    },
+    generatedAt: new Date().toISOString()
+  };
+}
+
+function aiOperationalContext(db, session, scope) {
+  const includeAll = scope === 'all';
+  const include = (...scopes) => includeAll || scopes.includes(scope);
+  const canOrders = canViewTab(session, 'orders');
+  const canProducts = canViewTab(session, 'products');
+  const canPcp = canViewTab(session, 'pcp');
+  const canBilling = canViewTab(session, 'billing');
+  const canThirdParty = canViewTab(session, 'thirdParty');
+  const canQuality = canViewTab(session, 'quality');
+
+  return {
+    orders: canOrders && include('orders', 'production', 'supply', 'management')
+      ? db.listOrders({ scope: 'active' }).filter((order) => scope !== 'production' || order.itemType === 'production')
+      : [],
+    forecasts: canProducts && include('products', 'production', 'supply', 'management')
+      ? db.listProductDemandForecasts()
+      : [],
+    pcpIssues: canPcp && include('pcp', 'production', 'supply', 'management')
+      ? db.listPcpPendingIssues({ status: 'open' })
+      : [],
+    billingOrders: canBilling && include('billing', 'supply', 'management')
+      ? db.listOrdersByBillingStage('released')
+      : [],
+    billingThirdParty: canThirdParty && include('billing', 'supply', 'management')
+      ? db.listThirdPartyPartsByBillingStage('released')
+      : [],
+    qualityAlerts: canQuality && include('quality', 'production', 'management')
+      ? db.listQualityAlerts({ includePhotos: false })
+      : []
+  };
+}
+
+function matchAiKnowledgeSources(prompt, sources, scope) {
+  const promptTokens = new Set(normalizeId(prompt).split('-').filter((token) => token.length > 2));
+  const normalizedScope = sanitizeServerAiScope(scope);
+  return sources
+    .map((source) => {
+      const text = normalizeId([source.title, source.tags, source.content].join(' '));
+      const scopeScore = source.scope === normalizedScope || source.scope === 'all' || normalizedScope === 'all' ? 3 : 0;
+      let tokenScore = 0;
+      for (const token of promptTokens) {
+        if (text.includes(token)) tokenScore += 1;
+      }
+      return { source, score: scopeScore + tokenScore };
+    })
+    .filter((item) => item.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 5)
+    .map((item) => item.source);
+}
+
+function aiConfidenceScore({ sources, forecasts, orders, pcpIssues }) {
+  let score = 0.52;
+  if (sources.length) score += 0.12;
+  if (forecasts.length >= 3) score += 0.12;
+  if (orders.length >= 10) score += 0.1;
+  if (pcpIssues.length) score += 0.04;
+  return Math.round(Math.min(0.88, score) * 100) / 100;
+}
+
+function aiNextStepForRisk(riskLevel) {
+  if (riskLevel === 'alto') {
+    return 'Abrir uma reuniao rapida de decisao com Comercial, PCP, Producao e Faturamento para tratar prazo, gargalo e responsavel.';
+  }
+  if (riskLevel === 'moderado') {
+    return 'Gerar uma revisao semanal com foco nos pedidos vencendo e nas pendencias que podem virar atraso.';
+  }
+  return 'Usar esta leitura como baseline e alimentar a base de conhecimento com as decisoes tomadas.';
+}
+
+function sanitizeServerAiScope(value) {
+  const scope = normalizeId(value).replace(/-/g, '');
+  const aliases = {
+    geral: 'all',
+    todos: 'all',
+    tudo: 'all',
+    vendas: 'orders',
+    pedidos: 'orders',
+    producao: 'production',
+    produto: 'products',
+    produtos: 'products',
+    compras: 'pcp',
+    pendencias: 'pcp',
+    faturamento: 'billing',
+    qualidade: 'quality',
+    aps: 'aps',
+    supply: 'supply',
+    gestao: 'management'
+  };
+  const normalized = aliases[scope] || scope || 'all';
+  const allowed = new Set(['all', 'orders', 'production', 'products', 'pcp', 'billing', 'quality', 'aps', 'supply', 'management']);
+  return allowed.has(normalized) ? normalized : 'all';
+}
+
 function normalizeId(value) {
   return String(value || '')
     .normalize('NFD')
@@ -321,6 +518,81 @@ function normalizeId(value) {
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
     .slice(0, 80);
+}
+
+function buildChangeEvents(db, limit = 80) {
+  return db.listActivityLog(limit)
+    .map(activityToChangeEvent)
+    .filter(Boolean);
+}
+
+function activityToChangeEvent(activity) {
+  const scopes = changeScopesForActivity(activity);
+  if (!scopes.length) return null;
+  return {
+    id: String(activity.id || `${activity.createdAt}-${activity.action}`),
+    createdAt: activity.createdAt,
+    scopes,
+    title: activity.action,
+    label: activity.entityLabel || activity.entityType || ''
+  };
+}
+
+function changeScopesForActivity(activity) {
+  const text = normalizeId([
+    activity.action,
+    activity.entityType,
+    activity.entityLabel,
+    activity.details
+  ].filter(Boolean).join(' '));
+  const scopes = new Set();
+
+  if (text.includes('pedido') || text.includes('status') || text.includes('op-') || text.includes('ordem')) {
+    scopes.add('orders');
+    scopes.add('dashboard');
+    scopes.add('products');
+  }
+  if (text.includes('fatur') || text.includes('nota') || text.includes('nf')) {
+    scopes.add('billing');
+    scopes.add('dashboard');
+  }
+  if (text.includes('carreg') || text.includes('expedicao')) {
+    scopes.add('loading');
+    scopes.add('dashboard');
+  }
+  if (text.includes('terceir') || text.includes('romaneio') || text.includes('beneficiamento')) {
+    scopes.add('thirdParty');
+    scopes.add('billing');
+  }
+  if (text.includes('pcp') || text.includes('pendencia') || text.includes('compra')) {
+    scopes.add('pcp');
+  }
+  if (text.includes('qualidade') || text.includes('alerta') || text.includes('rnc') || text.includes('a3')) {
+    scopes.add('quality');
+    scopes.add('orders');
+  }
+  if (text.includes('sequenciamento')) {
+    scopes.add('sequencing');
+    scopes.add('aps');
+  }
+  if (text.includes('aps') || text.includes('centro') || text.includes('operador') || text.includes('calendario')) {
+    scopes.add('aps');
+    scopes.add('admin');
+  }
+  if (text.includes('cadastro') || text.includes('cliente') || text.includes('usuario') || text.includes('motivo')) {
+    scopes.add('admin');
+  }
+  if (text.includes('backup') || text.includes('sistema') || text.includes('saude')) {
+    scopes.add('admin');
+  }
+  if (text.includes('ia') || text.includes('inteligencia') || text.includes('treinamento') || text.includes('conhecimento')) {
+    scopes.add('ai');
+  }
+
+  if (scopes.size) {
+    scopes.add('reports');
+  }
+  return Array.from(scopes);
 }
 
 function maxBy(items, iteratee) {
@@ -505,10 +777,189 @@ async function handleApi(context) {
     return;
   }
 
+  if (req.method === 'GET' && pathname === '/api/change-events') {
+    const limit = Math.min(200, Math.max(20, Number(requestUrl.searchParams.get('limit')) || 80));
+    sendJson(res, 200, {
+      events: buildChangeEvents(db, limit)
+    });
+    return;
+  }
+
   if (req.method === 'GET' && pathname === '/api/ai/insights') {
     sendJson(res, 200, {
       analysis: buildOperationalAiInsights(db, session)
     });
+    return;
+  }
+
+  if (req.method === 'GET' && pathname === '/api/ai/workbench') {
+    if (!canViewTab(session, 'ai')) {
+      sendJson(res, 403, { error: 'Acesso negado ao modulo IA.' });
+      return;
+    }
+
+    sendJson(res, 200, { workbench: buildAiWorkbench(db, session) });
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/api/ai/analyze') {
+    if (!canViewTab(session, 'ai')) {
+      sendJson(res, 403, { error: 'Acesso negado ao modulo IA.' });
+      return;
+    }
+
+    const body = await readJsonBody(req);
+    const actor = session.user.name || session.user.username;
+    let analysis;
+    try {
+      analysis = buildAiDecisionAnalysis(db, session, body);
+      db.createAiAnalysisHistory(analysis, actor);
+    } catch (error) {
+      sendJson(res, 400, { error: error.message });
+      return;
+    }
+
+    db.logActivity({
+      actor,
+      action: 'Analise IA gerada',
+      entityType: 'IA',
+      entityLabel: analysis.contextScope,
+      details: analysis.prompt
+    });
+    broadcastRealtime(server, ['ai', 'reports']);
+    sendJson(res, 200, { analysis, history: db.listAiAnalysisHistory(80) });
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/api/ai/knowledge') {
+    if (!canEditTab(session, 'ai')) {
+      sendJson(res, 403, { error: 'Usuario sem permissao para alterar a base de IA.' });
+      return;
+    }
+
+    const body = await readJsonBody(req);
+    const actor = session.user.name || session.user.username;
+    let source;
+    try {
+      source = db.createAiKnowledgeSource(body, actor);
+    } catch (error) {
+      sendJson(res, 400, { error: error.message });
+      return;
+    }
+
+    db.logActivity({
+      actor,
+      action: 'Base de conhecimento IA criada',
+      entityType: 'IA',
+      entityLabel: source.title,
+      details: `Escopo: ${source.scope}; Tipo: ${source.sourceType}`
+    });
+    broadcastRealtime(server, ['ai', 'reports']);
+    sendJson(res, 201, { source, workbench: buildAiWorkbench(db, session) });
+    return;
+  }
+
+  const aiKnowledgeMatch = pathname.match(/^\/api\/ai\/knowledge\/([^/]+)$/);
+  if (aiKnowledgeMatch && req.method === 'PATCH') {
+    if (!canEditTab(session, 'ai')) {
+      sendJson(res, 403, { error: 'Usuario sem permissao para alterar a base de IA.' });
+      return;
+    }
+
+    const body = await readJsonBody(req);
+    const actor = session.user.name || session.user.username;
+    let source;
+    try {
+      source = db.updateAiKnowledgeSource(decodeURIComponent(aiKnowledgeMatch[1]), body, actor);
+    } catch (error) {
+      sendJson(res, 400, { error: error.message });
+      return;
+    }
+    if (!source) {
+      sendJson(res, 404, { error: 'Base de conhecimento nao encontrada.' });
+      return;
+    }
+
+    broadcastRealtime(server, ['ai', 'reports']);
+    sendJson(res, 200, { source, workbench: buildAiWorkbench(db, session) });
+    return;
+  }
+
+  if (aiKnowledgeMatch && req.method === 'DELETE') {
+    if (!canEditTab(session, 'ai')) {
+      sendJson(res, 403, { error: 'Usuario sem permissao para excluir base de IA.' });
+      return;
+    }
+
+    const removed = db.deleteAiKnowledgeSource(decodeURIComponent(aiKnowledgeMatch[1]));
+    if (!removed) {
+      sendJson(res, 404, { error: 'Base de conhecimento nao encontrada.' });
+      return;
+    }
+
+    db.logActivity({
+      actor: session.user.name || session.user.username,
+      action: 'Base de conhecimento IA excluida',
+      entityType: 'IA',
+      entityLabel: decodeURIComponent(aiKnowledgeMatch[1]),
+      details: ''
+    });
+    broadcastRealtime(server, ['ai', 'reports']);
+    sendJson(res, 200, { ok: true, workbench: buildAiWorkbench(db, session) });
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/api/ai/training-runs') {
+    if (!canEditTab(session, 'ai')) {
+      sendJson(res, 403, { error: 'Usuario sem permissao para cadastrar treinamento de IA.' });
+      return;
+    }
+
+    const body = await readJsonBody(req);
+    const actor = session.user.name || session.user.username;
+    let training;
+    try {
+      training = db.createAiTrainingRun(body, actor);
+    } catch (error) {
+      sendJson(res, 400, { error: error.message });
+      return;
+    }
+
+    db.logActivity({
+      actor,
+      action: 'Treinamento IA cadastrado',
+      entityType: 'IA',
+      entityLabel: training.objective,
+      details: `Dataset: ${training.datasetScope}; Modelo: ${training.modelTarget}`
+    });
+    broadcastRealtime(server, ['ai', 'reports']);
+    sendJson(res, 201, { training, workbench: buildAiWorkbench(db, session) });
+    return;
+  }
+
+  const aiTrainingMatch = pathname.match(/^\/api\/ai\/training-runs\/([^/]+)$/);
+  if (aiTrainingMatch && req.method === 'PATCH') {
+    if (!canEditTab(session, 'ai')) {
+      sendJson(res, 403, { error: 'Usuario sem permissao para alterar treinamento de IA.' });
+      return;
+    }
+
+    const body = await readJsonBody(req);
+    const training = db.updateAiTrainingRun(decodeURIComponent(aiTrainingMatch[1]), body);
+    if (!training) {
+      sendJson(res, 404, { error: 'Treinamento de IA nao encontrado.' });
+      return;
+    }
+
+    db.logActivity({
+      actor: session.user.name || session.user.username,
+      action: 'Treinamento IA atualizado',
+      entityType: 'IA',
+      entityLabel: training.objective,
+      details: `Status: ${training.status}`
+    });
+    broadcastRealtime(server, ['ai', 'reports']);
+    sendJson(res, 200, { training, workbench: buildAiWorkbench(db, session) });
     return;
   }
 
@@ -758,6 +1209,21 @@ async function handleApi(context) {
   if (req.method === 'GET' && pathname === '/api/activity-log') {
     if (!canViewTab(session, 'reports')) {
       sendJson(res, 403, { error: 'Acesso negado a esta aba.' });
+      return;
+    }
+
+    if (requestUrl.searchParams.has('page') || requestUrl.searchParams.has('pageSize')) {
+      sendJson(res, 200, db.listActivityLogPage({
+        search: requestUrl.searchParams.get('search') || '',
+        dateFrom: requestUrl.searchParams.get('dateFrom') || '',
+        dateTo: requestUrl.searchParams.get('dateTo') || '',
+        actionGroup: requestUrl.searchParams.get('actionGroup') || '',
+        sort: requestUrl.searchParams.get('sort') || '',
+        direction: requestUrl.searchParams.get('direction') || '',
+        page: requestUrl.searchParams.get('page') || '',
+        pageSize: requestUrl.searchParams.get('pageSize') || '',
+        filters: activityColumnFiltersFromQuery(requestUrl.searchParams)
+      }));
       return;
     }
 
@@ -1433,13 +1899,32 @@ async function handleApi(context) {
     try {
       const body = await readJsonBody(req);
       const issue = db.updatePcpPendingIssueDetails(id, body);
+      if (!issue) {
+        sendJson(res, 404, { error: 'Pedido da pendencia nao encontrado.' });
+        return;
+      }
       const actor = session.user.name || session.user.username;
       const changes = [];
+      if (Object.prototype.hasOwnProperty.call(body, 'orderId')) {
+        changes.push(`Pedido: ${previous.orderNumber || '-'} -> ${issue.orderNumber || '-'}`);
+      }
+      if (Object.prototype.hasOwnProperty.call(body, 'componentCode')) {
+        changes.push(`Componente: ${previous.componentCode || '-'} -> ${issue.componentCode || '-'}`);
+      }
+      if (Object.prototype.hasOwnProperty.call(body, 'reason')) {
+        changes.push(`Tipo: ${previous.reasonLabel || previous.reason || '-'} -> ${issue.reasonLabel || issue.reason || '-'}`);
+      }
+      if (Object.prototype.hasOwnProperty.call(body, 'motive')) {
+        changes.push(`Motivo: ${previous.motive || '-'} -> ${issue.motive || '-'}`);
+      }
       if (Object.prototype.hasOwnProperty.call(body, 'expectedResolutionDate')) {
         changes.push(`Data prevista: ${previous.expectedResolutionDate || '-'} -> ${issue.expectedResolutionDate || '-'}`);
       }
       if (Object.prototype.hasOwnProperty.call(body, 'purchaseOrderNumber')) {
         changes.push(`Pedido compra: ${previous.purchaseOrderNumber || '-'} -> ${issue.purchaseOrderNumber || '-'}`);
+      }
+      if (Object.prototype.hasOwnProperty.call(body, 'notes')) {
+        changes.push('Observacoes atualizadas');
       }
       db.logActivity({
         actor,
@@ -2730,6 +3215,16 @@ function sanitizePreferenceValue(key, value) {
   }
 
   return JSON.parse(serialized);
+}
+
+function activityColumnFiltersFromQuery(searchParams) {
+  const filters = {};
+  for (const [key, value] of searchParams.entries()) {
+    if (key.startsWith('filter.')) {
+      filters[key.slice(7)] = value;
+    }
+  }
+  return filters;
 }
 
 function sanitizeUniqueList(value, allowed) {

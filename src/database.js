@@ -12,8 +12,8 @@ function createSqliteDatabase(file) {
 }
 
 const STATUS_VALUES = ['Em análise', 'Liberado', 'Em produção', 'Faturado', 'Cancelado'];
-const TAB_KEYS = ['orders', 'dashboard', 'billing', 'loading', 'thirdParty', 'pcp', 'sequencing', 'aps', 'products', 'quality', 'reports', 'admin'];
-const USER_TAB_KEYS = TAB_KEYS.filter((tab) => tab !== 'admin');
+const TAB_KEYS = ['orders', 'dashboard', 'billing', 'loading', 'thirdParty', 'pcp', 'sequencing', 'aps', 'products', 'quality', 'reports', 'ai', 'admin'];
+const USER_TAB_KEYS = TAB_KEYS.filter((tab) => !['admin', 'ai'].includes(tab));
 const DEFAULT_VISIBLE_TABS = USER_TAB_KEYS;
 const DEFAULT_EDITABLE_TABS = ['orders', 'billing', 'loading', 'thirdParty', 'pcp'];
 const ROLE_VALUES = ['admin', 'user', 'commercial', 'production', 'financial', 'viewer'];
@@ -567,6 +567,43 @@ class LocalDatabase {
         FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
       );
 
+      CREATE TABLE IF NOT EXISTS ai_knowledge_sources (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        source_type TEXT NOT NULL DEFAULT 'manual',
+        scope TEXT NOT NULL DEFAULT 'general',
+        content TEXT NOT NULL DEFAULT '',
+        tags TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'active',
+        created_by TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS ai_training_runs (
+        id TEXT PRIMARY KEY,
+        objective TEXT NOT NULL,
+        dataset_scope TEXT NOT NULL DEFAULT 'all',
+        model_target TEXT NOT NULL DEFAULT 'decision-support',
+        status TEXT NOT NULL DEFAULT 'planned',
+        notes TEXT NOT NULL DEFAULT '',
+        result_summary TEXT NOT NULL DEFAULT '',
+        created_by TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS ai_analysis_history (
+        id TEXT PRIMARY KEY,
+        prompt TEXT NOT NULL,
+        context_scope TEXT NOT NULL DEFAULT 'all',
+        mode TEXT NOT NULL DEFAULT 'rules-engine',
+        response TEXT NOT NULL DEFAULT '',
+        confidence REAL,
+        created_by TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL
+      );
+
       CREATE INDEX IF NOT EXISTS idx_sales_orders_order_number ON sales_orders(order_number);
       CREATE INDEX IF NOT EXISTS idx_sales_orders_sku ON sales_orders(sku);
       CREATE INDEX IF NOT EXISTS idx_sales_orders_status ON sales_orders(status);
@@ -586,6 +623,10 @@ class LocalDatabase {
       CREATE INDEX IF NOT EXISTS idx_quality_alerts_customer ON quality_alerts(customer);
       CREATE INDEX IF NOT EXISTS idx_quality_alerts_line_capacity ON quality_alerts(product_line, capacity_tr);
       CREATE INDEX IF NOT EXISTS idx_quality_alert_ack_user_order ON quality_alert_acknowledgements(user_id, order_id);
+      CREATE INDEX IF NOT EXISTS idx_ai_knowledge_sources_status ON ai_knowledge_sources(status);
+      CREATE INDEX IF NOT EXISTS idx_ai_knowledge_sources_scope ON ai_knowledge_sources(scope);
+      CREATE INDEX IF NOT EXISTS idx_ai_training_runs_status ON ai_training_runs(status);
+      CREATE INDEX IF NOT EXISTS idx_ai_analysis_history_created_at ON ai_analysis_history(created_at);
       CREATE UNIQUE INDEX IF NOT EXISTS idx_order_status_history_source_activity
         ON order_status_history(source_activity_id)
         WHERE source_activity_id IS NOT NULL;
@@ -2943,26 +2984,45 @@ class LocalDatabase {
       return null;
     }
 
-    const dateValue = Object.prototype.hasOwnProperty.call(input, 'expectedResolutionDate')
-      ? String(input.expectedResolutionDate || '').trim()
-      : issue.expectedResolutionDate || '';
-    if (dateValue && !isValidDateText(dateValue)) {
-      throw new Error('Informe uma data prevista valida.');
-    }
+    const merged = sanitizePcpPendingIssueInput({
+      orderId: Object.prototype.hasOwnProperty.call(input, 'orderId') ? input.orderId : issue.orderId,
+      componentCode: Object.prototype.hasOwnProperty.call(input, 'componentCode') ? input.componentCode : issue.componentCode,
+      reason: Object.prototype.hasOwnProperty.call(input, 'reason') ? input.reason : issue.reason,
+      motive: Object.prototype.hasOwnProperty.call(input, 'motive') ? input.motive : issue.motive,
+      purchaseOrderNumber: Object.prototype.hasOwnProperty.call(input, 'purchaseOrderNumber') ? input.purchaseOrderNumber : issue.purchaseOrderNumber,
+      expectedResolutionDate: Object.prototype.hasOwnProperty.call(input, 'expectedResolutionDate') ? input.expectedResolutionDate : issue.expectedResolutionDate,
+      notes: Object.prototype.hasOwnProperty.call(input, 'notes') ? input.notes : issue.notes
+    });
 
-    const purchaseOrderNumber = Object.prototype.hasOwnProperty.call(input, 'purchaseOrderNumber')
-      ? String(input.purchaseOrderNumber || '').trim().toUpperCase().slice(0, 80)
-      : issue.purchaseOrderNumber || '';
+    const order = this.findOrderById(merged.orderId);
+    if (!order) {
+      return null;
+    }
 
     this.db
       .prepare(`
         UPDATE pcp_pending_issues
-        SET expected_resolution_date = ?,
+        SET order_id = ?,
+          component_code = ?,
+          reason = ?,
+          motive = ?,
           purchase_order_number = ?,
+          notes = ?,
+          expected_resolution_date = ?,
           updated_at = ?
         WHERE id = ?
       `)
-      .run(dateValue, purchaseOrderNumber, new Date().toISOString(), String(id || ''));
+      .run(
+        merged.orderId,
+        merged.componentCode,
+        merged.reason,
+        merged.motive,
+        merged.purchaseOrderNumber,
+        merged.notes,
+        merged.expectedResolutionDate,
+        new Date().toISOString(),
+        String(id || '')
+      );
 
     return this.findPcpPendingIssueById(id);
   }
@@ -3210,6 +3270,223 @@ class LocalDatabase {
     return result.changes > 0;
   }
 
+  listAiKnowledgeSources(options = {}) {
+    const clauses = [];
+    const params = [];
+    if (options.activeOnly) {
+      clauses.push("status = 'active'");
+    }
+    if (options.scope) {
+      clauses.push('scope = ?');
+      params.push(String(options.scope || '').trim());
+    }
+    const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
+    const limit = clampInteger(options.limit, 1, 500, 100);
+
+    return this.db
+      .prepare(`
+        SELECT id, title, source_type, scope, content, tags, status, created_by, created_at, updated_at
+        FROM ai_knowledge_sources
+        ${where}
+        ORDER BY updated_at DESC
+        LIMIT ?
+      `)
+      .all(...params, limit)
+      .map(mapAiKnowledgeSource);
+  }
+
+  findAiKnowledgeSourceById(id) {
+    const row = this.db
+      .prepare(`
+        SELECT id, title, source_type, scope, content, tags, status, created_by, created_at, updated_at
+        FROM ai_knowledge_sources
+        WHERE id = ?
+      `)
+      .get(String(id || '').trim());
+    return mapAiKnowledgeSource(row);
+  }
+
+  createAiKnowledgeSource(input, actor = '') {
+    const source = sanitizeAiKnowledgeSourceInput(input);
+    const now = new Date().toISOString();
+    const id = randomToken(12);
+
+    this.db
+      .prepare(`
+        INSERT INTO ai_knowledge_sources (
+          id, title, source_type, scope, content, tags, status, created_by, created_at, updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `)
+      .run(
+        id,
+        source.title,
+        source.sourceType,
+        source.scope,
+        source.content,
+        source.tags,
+        source.status,
+        String(actor || '').trim(),
+        now,
+        now
+      );
+
+    return this.findAiKnowledgeSourceById(id);
+  }
+
+  updateAiKnowledgeSource(id, input, actor = '') {
+    const existing = this.findAiKnowledgeSourceById(id);
+    if (!existing) {
+      return null;
+    }
+    const source = sanitizeAiKnowledgeSourceInput({ ...existing, ...input });
+    const now = new Date().toISOString();
+    this.db
+      .prepare(`
+        UPDATE ai_knowledge_sources
+        SET title = ?, source_type = ?, scope = ?, content = ?, tags = ?, status = ?, updated_at = ?
+        WHERE id = ?
+      `)
+      .run(source.title, source.sourceType, source.scope, source.content, source.tags, source.status, now, existing.id);
+
+    if (actor) {
+      this.logActivity({
+        actor,
+        action: 'Base de conhecimento IA atualizada',
+        entityType: 'IA',
+        entityLabel: source.title,
+        details: `Escopo: ${source.scope}; Status: ${source.status}`
+      });
+    }
+
+    return this.findAiKnowledgeSourceById(existing.id);
+  }
+
+  deleteAiKnowledgeSource(id) {
+    const result = this.db.prepare('DELETE FROM ai_knowledge_sources WHERE id = ?').run(String(id || '').trim());
+    return result.changes > 0;
+  }
+
+  listAiTrainingRuns(limit = 80) {
+    return this.db
+      .prepare(`
+        SELECT id, objective, dataset_scope, model_target, status, notes, result_summary,
+          created_by, created_at, updated_at
+        FROM ai_training_runs
+        ORDER BY updated_at DESC
+        LIMIT ?
+      `)
+      .all(clampInteger(limit, 1, 300, 80))
+      .map(mapAiTrainingRun);
+  }
+
+  findAiTrainingRunById(id) {
+    const row = this.db
+      .prepare(`
+        SELECT id, objective, dataset_scope, model_target, status, notes, result_summary,
+          created_by, created_at, updated_at
+        FROM ai_training_runs
+        WHERE id = ?
+      `)
+      .get(String(id || '').trim());
+    return mapAiTrainingRun(row);
+  }
+
+  createAiTrainingRun(input, actor = '') {
+    const training = sanitizeAiTrainingRunInput(input);
+    const now = new Date().toISOString();
+    const id = randomToken(12);
+
+    this.db
+      .prepare(`
+        INSERT INTO ai_training_runs (
+          id, objective, dataset_scope, model_target, status, notes, result_summary,
+          created_by, created_at, updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `)
+      .run(
+        id,
+        training.objective,
+        training.datasetScope,
+        training.modelTarget,
+        training.status,
+        training.notes,
+        training.resultSummary,
+        String(actor || '').trim(),
+        now,
+        now
+      );
+
+    return this.findAiTrainingRunById(id);
+  }
+
+  updateAiTrainingRun(id, input) {
+    const existing = this.findAiTrainingRunById(id);
+    if (!existing) {
+      return null;
+    }
+    const training = sanitizeAiTrainingRunInput({ ...existing, ...input });
+    const now = new Date().toISOString();
+    this.db
+      .prepare(`
+        UPDATE ai_training_runs
+        SET objective = ?, dataset_scope = ?, model_target = ?, status = ?,
+          notes = ?, result_summary = ?, updated_at = ?
+        WHERE id = ?
+      `)
+      .run(
+        training.objective,
+        training.datasetScope,
+        training.modelTarget,
+        training.status,
+        training.notes,
+        training.resultSummary,
+        now,
+        existing.id
+      );
+
+    return this.findAiTrainingRunById(existing.id);
+  }
+
+  listAiAnalysisHistory(limit = 80) {
+    return this.db
+      .prepare(`
+        SELECT id, prompt, context_scope, mode, response, confidence, created_by, created_at
+        FROM ai_analysis_history
+        ORDER BY created_at DESC
+        LIMIT ?
+      `)
+      .all(clampInteger(limit, 1, 300, 80))
+      .map(mapAiAnalysis);
+  }
+
+  createAiAnalysisHistory(input, actor = '') {
+    const analysis = sanitizeAiAnalysisInput(input);
+    const now = new Date().toISOString();
+    const id = randomToken(12);
+
+    this.db
+      .prepare(`
+        INSERT INTO ai_analysis_history (
+          id, prompt, context_scope, mode, response, confidence, created_by, created_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `)
+      .run(
+        id,
+        analysis.prompt,
+        analysis.contextScope,
+        analysis.mode,
+        analysis.response,
+        analysis.confidence,
+        String(actor || '').trim(),
+        now
+      );
+
+    return this.listAiAnalysisHistory(1)[0] || null;
+  }
+
   logActivity({ actor, action, entityType, entityLabel, details = '' }) {
     this.db
       .prepare(`
@@ -3237,6 +3514,44 @@ class LocalDatabase {
       `)
       .all(limit)
       .map(mapActivity);
+  }
+
+  listActivityLogPage(filters = {}) {
+    const clauses = [];
+    const params = [];
+
+    appendActivitySearchClause(filters.search, clauses, params);
+    appendActivityDateClause(filters, clauses, params);
+    appendActivityActionGroupClause(filters.actionGroup, clauses);
+    appendActivityColumnFilterClauses(filters.filters, clauses, params);
+
+    const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
+    const orderBy = activitySortSql(filters.sort, filters.direction);
+    const pageSize = clampInteger(filters.pageSize, 10, 200, 50);
+    const page = clampInteger(filters.page, 1, 1000000, 1);
+    const offset = (page - 1) * pageSize;
+    const total = Number(this.db
+      .prepare(`SELECT COUNT(*) AS total FROM activity_log ${where}`)
+      .get(...params).total) || 0;
+
+    const activities = this.db
+      .prepare(`
+        SELECT id, actor, action, entity_type, entity_label, details, created_at
+        FROM activity_log
+        ${where}
+        ORDER BY ${orderBy}
+        LIMIT ? OFFSET ?
+      `)
+      .all(...params, pageSize, offset)
+      .map(mapActivity);
+
+    return {
+      activities,
+      total,
+      page,
+      pageSize,
+      totalPages: Math.max(1, Math.ceil(total / pageSize))
+    };
   }
 
   ping() {
@@ -3461,7 +3776,7 @@ function mapOrder(row) {
     entryDate: row.entry_date,
     originalDeliveryDate: row.original_delivery_date,
     productionDeliveryDate: row.production_delivery_date,
-    daysLate: calculateDaysLate(row.original_delivery_date),
+    daysLate: calculateDaysLate(row.original_delivery_date, row.finalization_date, row.status, row.billing_stage),
     finalizationDate: row.finalization_date,
     notes: row.notes,
     status: row.status,
@@ -3696,6 +4011,61 @@ function mapQualityAlertAcknowledgement(row) {
     userId: row.user_id,
     acknowledgedBy: row.acknowledged_by || '',
     acknowledgedAt: row.acknowledged_at
+  };
+}
+
+function mapAiKnowledgeSource(row) {
+  if (!row) {
+    return null;
+  }
+
+  return {
+    id: row.id,
+    title: row.title || '',
+    sourceType: row.source_type || 'manual',
+    scope: row.scope || 'general',
+    content: row.content || '',
+    tags: row.tags || '',
+    status: row.status || 'active',
+    createdBy: row.created_by || '',
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
+}
+
+function mapAiTrainingRun(row) {
+  if (!row) {
+    return null;
+  }
+
+  return {
+    id: row.id,
+    objective: row.objective || '',
+    datasetScope: row.dataset_scope || 'all',
+    modelTarget: row.model_target || 'decision-support',
+    status: row.status || 'planned',
+    notes: row.notes || '',
+    resultSummary: row.result_summary || '',
+    createdBy: row.created_by || '',
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
+}
+
+function mapAiAnalysis(row) {
+  if (!row) {
+    return null;
+  }
+
+  return {
+    id: row.id,
+    prompt: row.prompt || '',
+    contextScope: row.context_scope || 'all',
+    mode: row.mode || 'rules-engine',
+    response: row.response || '',
+    confidence: row.confidence === null || row.confidence === undefined ? null : Number(row.confidence),
+    createdBy: row.created_by || '',
+    createdAt: row.created_at
   };
 }
 
@@ -4052,13 +4422,96 @@ function orderSortSql(sort, direction) {
     entryDate: 'entry_date',
     originalDeliveryDate: 'original_delivery_date',
     productionDeliveryDate: 'production_delivery_date',
-    daysLate: "CASE WHEN original_delivery_date GLOB '????-??-??' AND date('now', 'localtime') > original_delivery_date THEN CAST(julianday(date('now', 'localtime')) - julianday(original_delivery_date) AS INTEGER) WHEN original_delivery_date GLOB '????-??-??' THEN 0 ELSE NULL END",
+    daysLate: "CASE WHEN original_delivery_date GLOB '????-??-??' AND finalization_date GLOB '????-??-??' THEN CASE WHEN finalization_date > original_delivery_date THEN CAST(julianday(finalization_date) - julianday(original_delivery_date) AS INTEGER) ELSE 0 END WHEN original_delivery_date GLOB '????-??-??' AND date('now', 'localtime') > original_delivery_date THEN CAST(julianday(date('now', 'localtime')) - julianday(original_delivery_date) AS INTEGER) WHEN original_delivery_date GLOB '????-??-??' THEN 0 ELSE NULL END",
     finalizationDate: 'finalization_date',
     status: 'status',
     updatedAt: 'updated_at'
   };
   const expression = sortMap[String(sort || '').trim()] || 'entry_date';
   return `${expression} ${dir}`;
+}
+
+function appendActivitySearchClause(search, clauses, params) {
+  const text = String(search || '').trim().toLowerCase();
+  if (!text) return;
+
+  const value = `%${text}%`;
+  clauses.push(`(
+    lower(COALESCE(actor, '')) LIKE ?
+    OR lower(COALESCE(action, '')) LIKE ?
+    OR lower(COALESCE(entity_type, '')) LIKE ?
+    OR lower(COALESCE(entity_label, '')) LIKE ?
+    OR lower(COALESCE(details, '')) LIKE ?
+    OR lower(COALESCE(created_at, '')) LIKE ?
+  )`);
+  params.push(value, value, value, value, value, value);
+}
+
+function appendActivityDateClause(filters, clauses, params) {
+  if (isValidDateText(filters.dateFrom)) {
+    clauses.push('created_at >= ?');
+    params.push(`${filters.dateFrom}T00:00:00.000Z`);
+  }
+
+  if (isValidDateText(filters.dateTo)) {
+    clauses.push('created_at <= ?');
+    params.push(`${filters.dateTo}T23:59:59.999Z`);
+  }
+}
+
+function appendActivityActionGroupClause(actionGroup, clauses) {
+  const expression = activityActionGroupSql(actionGroup);
+  if (expression) {
+    clauses.push(expression);
+  }
+}
+
+function appendActivityColumnFilterClauses(filters, clauses, params) {
+  const cleanFilters = filters && typeof filters === 'object' && !Array.isArray(filters) ? filters : {};
+  for (const [key, rawValue] of Object.entries(cleanFilters)) {
+    const column = activityColumnSql(key);
+    const value = String(rawValue || '').trim().toLowerCase();
+    if (!column || !value) continue;
+    clauses.push(`lower(COALESCE(${column}, '')) LIKE ?`);
+    params.push(`%${value}%`);
+  }
+}
+
+function activityColumnSql(key) {
+  const columns = {
+    createdAt: 'created_at',
+    actor: 'actor',
+    action: 'action',
+    entityType: 'entity_type',
+    entityLabel: 'entity_label',
+    details: 'details'
+  };
+  return columns[String(key || '').trim()] || '';
+}
+
+function activitySortSql(sort, direction) {
+  const dir = String(direction || '').toLowerCase() === 'asc' ? 'ASC' : 'DESC';
+  const expression = activityColumnSql(sort) || 'created_at';
+  const secondarySort = expression === 'created_at' ? '' : ', created_at DESC';
+  return `${expression} ${dir}${secondarySort}`;
+}
+
+function activityActionGroupSql(actionGroup) {
+  const group = String(actionGroup || '').trim();
+  if (!group) return '';
+
+  const action = "lower(COALESCE(action, ''))";
+  const danger = `(${action} LIKE '%exclu%' OR ${action} LIKE '%restaur%')`;
+  const system = `(${action} LIKE '%backup%' OR ${action} LIKE '%login%' OR ${action} LIKE '%logout%')`;
+  const flow = `(${action} LIKE '%status%' OR ${action} LIKE '%fatur%')`;
+  const success = `(${action} LIKE '%criad%' OR ${action} LIKE '%cadastr%' OR ${action} LIKE '%novo%')`;
+
+  if (group === 'danger') return danger;
+  if (group === 'system') return system;
+  if (group === 'flow') return flow;
+  if (group === 'success') return success;
+  if (group === 'default') return `NOT (${danger} OR ${system} OR ${flow} OR ${success})`;
+  return '';
 }
 
 function sanitizeStatusCategory(value) {
@@ -4426,6 +4879,114 @@ function sanitizeQualityRncState(input) {
   return safeState;
 }
 
+function sanitizeAiKnowledgeSourceInput(input = {}) {
+  const title = String(input.title || '').trim().slice(0, 160);
+  const sourceType = sanitizeAiSourceType(input.sourceType || input.source_type);
+  const scope = sanitizeAiContextScope(input.scope);
+  const content = String(input.content || '').trim().slice(0, 20000);
+  const tags = normalizeAiTags(input.tags);
+  const status = sanitizeAiSourceStatus(input.status);
+
+  if (!title) {
+    throw new Error('Informe o titulo da base de conhecimento.');
+  }
+
+  if (!content) {
+    throw new Error('Informe o conteudo da base de conhecimento.');
+  }
+
+  return { title, sourceType, scope, content, tags, status };
+}
+
+function sanitizeAiTrainingRunInput(input = {}) {
+  const objective = String(input.objective || '').trim().slice(0, 240);
+  const datasetScope = sanitizeAiContextScope(input.datasetScope || input.dataset_scope);
+  const modelTarget = String(input.modelTarget || input.model_target || 'decision-support').trim().slice(0, 80) || 'decision-support';
+  const status = sanitizeAiTrainingStatus(input.status);
+  const notes = String(input.notes || '').trim().slice(0, 5000);
+  const resultSummary = String(input.resultSummary || input.result_summary || '').trim().slice(0, 5000);
+
+  if (!objective) {
+    throw new Error('Informe o objetivo do treinamento.');
+  }
+
+  return { objective, datasetScope, modelTarget, status, notes, resultSummary };
+}
+
+function sanitizeAiAnalysisInput(input = {}) {
+  const prompt = String(input.prompt || '').trim().slice(0, 4000);
+  const contextScope = sanitizeAiContextScope(input.contextScope || input.context_scope);
+  const mode = String(input.mode || 'rules-engine').trim().slice(0, 60) || 'rules-engine';
+  const response = String(input.response || '').trim().slice(0, 30000);
+  const confidenceNumber = Number(input.confidence);
+  const confidence = Number.isFinite(confidenceNumber) ? Math.min(1, Math.max(0, confidenceNumber)) : null;
+
+  if (!prompt) {
+    throw new Error('Informe uma pergunta ou objetivo para a IA.');
+  }
+
+  return { prompt, contextScope, mode, response, confidence };
+}
+
+function sanitizeAiContextScope(value) {
+  const scope = normalizeText(value || 'all');
+  const aliases = {
+    geral: 'all',
+    todos: 'all',
+    tudo: 'all',
+    vendas: 'orders',
+    pedidos: 'orders',
+    pedido: 'orders',
+    producao: 'production',
+    produto: 'products',
+    produtos: 'products',
+    compras: 'pcp',
+    pendencias: 'pcp',
+    faturamento: 'billing',
+    qualidade: 'quality',
+    aps: 'aps',
+    supply: 'supply',
+    gestao: 'management'
+  };
+  const normalized = aliases[scope] || scope;
+  const allowed = new Set(['all', 'orders', 'production', 'products', 'pcp', 'billing', 'quality', 'aps', 'supply', 'management']);
+  return allowed.has(normalized) ? normalized : 'all';
+}
+
+function sanitizeAiSourceType(value) {
+  const type = normalizeText(value || 'manual');
+  const allowed = new Set(['manual', 'procedure', 'policy', 'dataset', 'decision', 'training-note']);
+  return allowed.has(type) ? type : 'manual';
+}
+
+function sanitizeAiSourceStatus(value) {
+  const status = normalizeText(value || 'active');
+  return status === 'inactive' || status === 'archived' ? status : 'active';
+}
+
+function sanitizeAiTrainingStatus(value) {
+  const status = normalizeText(value || 'planned');
+  const allowed = new Set(['planned', 'running', 'validated', 'rejected', 'archived']);
+  return allowed.has(status) ? status : 'planned';
+}
+
+function normalizeAiTags(value) {
+  const raw = Array.isArray(value) ? value : String(value || '').split(/[;,]/);
+  const seen = new Set();
+  return raw
+    .map((item) => String(item || '').trim())
+    .filter(Boolean)
+    .map((item) => item.slice(0, 40))
+    .filter((item) => {
+      const key = normalizeText(item);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, 12)
+    .join('; ');
+}
+
 function pcpPendingReasonLabel(reason) {
   const labels = {
     purchase: 'Compras',
@@ -4519,20 +5080,25 @@ function clampInteger(value, min, max, fallback) {
   return Math.min(max, Math.max(min, number));
 }
 
-function calculateDaysLate(originalDeliveryDate) {
+function calculateDaysLate(originalDeliveryDate, finalizationDate = '', status = '', billingStage = '') {
   if (!isValidDateText(originalDeliveryDate)) {
     return '';
   }
 
   const deliveryDate = parseDate(originalDeliveryDate);
-  const today = todayAtMidnight();
-  if (today <= deliveryDate) {
+  const endDate = isValidDateText(finalizationDate) ? parseDate(finalizationDate) : todayAtMidnight();
+
+  if (!endDate || endDate <= deliveryDate) {
     return 0;
   }
 
-  const diff = Math.floor((today - deliveryDate) / 86400000);
+  const diff = Math.floor((endDate - deliveryDate) / 86400000);
 
   return Math.max(0, diff);
+}
+
+function isCompletedOrderForDelay(status, billingStage = '') {
+  return normalizeText(status).includes('conclu') || String(billingStage || '') === 'loaded';
 }
 
 function calculateLeadTimeDisplay(entryDate, originalDeliveryDate) {

@@ -1,6 +1,7 @@
 node_modules/
 frontend-react/node_modules/
 dist-netlify/
+dist-netlify-react/
 dist-react/
 .npm-cache/
 .netlify/

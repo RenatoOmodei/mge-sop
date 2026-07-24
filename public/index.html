@@ -6,8 +6,15 @@
   <title>S&amp;OP</title>
   <link rel="manifest" href="/manifest.webmanifest">
   <meta name="theme-color" content="#172033">
-  <link rel="icon" href="/mge-logo.png" type="image/png">
-  <link rel="apple-touch-icon" href="/pwa-icon-192.png">
+  <meta name="application-name" content="MGE S&OP">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="MGE S&OP">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="msapplication-TileColor" content="#172033">
+  <link rel="icon" href="/pwa-icon-192.png" sizes="192x192" type="image/png">
+  <link rel="icon" href="/pwa-icon-512.png" sizes="512x512" type="image/png">
+  <link rel="apple-touch-icon" href="/pwa-icon-192.png" sizes="192x192">
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
@@ -86,7 +93,7 @@
               <div class="notification-list" id="notificationList"></div>
             </div>
           </div>
-          <button class="btn" id="downloadShortcut" type="button">Instalar ícone</button>
+          <button class="btn install-app-button" id="downloadShortcut" type="button">Instalar app</button>
           <span id="userName">Usuário</span>
           <button class="btn" id="changePasswordButton" type="button">Alterar senha</button>
           <button class="btn" id="logoutButton" type="button">Sair</button>

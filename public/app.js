@@ -71,6 +71,9 @@ const state = {
   appVersion: '',
   updateCheckTimer: null,
   updateInProgress: false,
+  pwaInstallPrompt: null,
+  appInstalled: false,
+  serviceWorkerRegistration: null,
   draggedColumnKey: '',
   columnOrder: [],
   selectedOrderIds: new Set(),
@@ -821,7 +824,10 @@ async function applyApplicationUpdate() {
     if ('serviceWorker' in navigator) {
       const registration = await navigator.serviceWorker.getRegistration();
       await registration?.update();
-      registration?.waiting?.postMessage({ type: 'SKIP_WAITING' });
+      if (registration?.waiting) {
+        registration.waiting.postMessage({ type: 'SKIP_WAITING' });
+        return;
+      }
     }
   } catch (error) {
     // Mesmo se o service worker falhar, o reload busca a versao atual pelo servidor.
@@ -837,6 +843,163 @@ async function applyApplicationUpdate() {
   }
 
   window.location.reload();
+}
+
+function setupPwaInstall() {
+  state.appInstalled = isRunningAsInstalledApp();
+  updateInstallButton();
+
+  window.addEventListener('beforeinstallprompt', (event) => {
+    event.preventDefault();
+    state.pwaInstallPrompt = event;
+    updateInstallButton();
+  });
+
+  window.addEventListener('appinstalled', () => {
+    state.appInstalled = true;
+    state.pwaInstallPrompt = null;
+    updateInstallButton('App instalado');
+    showInstallPanel('Aplicativo instalado com sucesso.');
+  });
+}
+
+function isRunningAsInstalledApp() {
+  return window.matchMedia('(display-mode: standalone)').matches
+    || window.matchMedia('(display-mode: fullscreen)').matches
+    || Boolean(window.navigator.standalone);
+}
+
+function updateInstallButton(status = '') {
+  if (!el.downloadShortcut) return;
+  el.downloadShortcut.textContent = state.appInstalled ? 'App instalado' : 'Instalar app';
+  el.downloadShortcut.classList.toggle('primary', Boolean(state.pwaInstallPrompt) && !state.appInstalled);
+  el.downloadShortcut.dataset.status = status;
+  el.downloadShortcut.title = state.appInstalled
+    ? 'S&OP ja esta aberto como aplicativo neste dispositivo.'
+    : 'Instalar o S&OP como aplicativo neste dispositivo.';
+}
+
+async function handleInstallAppClick() {
+  if (state.appInstalled) {
+    showInstallPanel('Este dispositivo ja esta usando o S&OP como aplicativo.');
+    return;
+  }
+
+  if (!state.pwaInstallPrompt) {
+    showInstallPanel('Instalacao nativa ainda nao liberada pelo navegador.');
+    return;
+  }
+
+  try {
+    const promptEvent = state.pwaInstallPrompt;
+    state.pwaInstallPrompt = null;
+    await promptEvent.prompt();
+    const choice = await promptEvent.userChoice;
+    if (choice.outcome === 'accepted') {
+      state.appInstalled = true;
+      updateInstallButton('App instalado');
+      return;
+    }
+    updateInstallButton();
+    showInstallPanel('Instalacao cancelada.');
+  } catch (error) {
+    updateInstallButton();
+    showInstallPanel('Nao foi possivel iniciar a instalacao nativa.');
+  }
+}
+
+function showInstallPanel(message = '') {
+  let panel = document.querySelector('#installAppPanel');
+  if (!panel) {
+    panel = document.createElement('div');
+    panel.id = 'installAppPanel';
+    panel.className = 'install-app-panel';
+    panel.innerHTML = `
+      <div class="install-app-header">
+        <strong>Instalar S&OP</strong>
+        <button class="icon-button" type="button" aria-label="Fechar instalacao">&times;</button>
+      </div>
+      <p data-install-message></p>
+      <div class="install-app-actions">
+        <button class="btn primary" type="button" data-install-native>Instalar app</button>
+        <button class="btn" type="button" data-download-shortcut>Baixar atalho antigo</button>
+      </div>
+    `;
+    document.body.appendChild(panel);
+    panel.querySelector('[aria-label="Fechar instalacao"]').addEventListener('click', hideInstallPanel);
+    panel.querySelector('[data-install-native]').addEventListener('click', handleInstallAppClick);
+    panel.querySelector('[data-download-shortcut]').addEventListener('click', () => {
+      window.location.href = '/api/shortcut';
+    });
+  }
+
+  panel.querySelector('[data-install-message]').textContent = message || (
+    state.pwaInstallPrompt
+      ? 'Instalacao nativa disponivel neste navegador.'
+      : 'No celular ou desktop, use o menu do navegador para instalar quando o botao nativo nao aparecer.'
+  );
+  panel.querySelector('[data-install-native]').hidden = !state.pwaInstallPrompt || state.appInstalled;
+  panel.querySelector('[data-download-shortcut]').hidden = state.appInstalled;
+  panel.hidden = false;
+}
+
+function hideInstallPanel() {
+  const panel = document.querySelector('#installAppPanel');
+  if (panel) panel.hidden = true;
+}
+
+function registerServiceWorker() {
+  if (!('serviceWorker' in navigator)) return;
+
+  window.addEventListener('load', () => {
+    let reloading = false;
+    let hadController = Boolean(navigator.serviceWorker.controller);
+
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!hadController) {
+        hadController = true;
+        return;
+      }
+      if (reloading) return;
+      reloading = true;
+      window.location.reload();
+    });
+
+    navigator.serviceWorker.register('/service-worker.js')
+      .then((registration) => {
+        state.serviceWorkerRegistration = registration;
+        listenForServiceWorkerUpdate(registration);
+        registration.update().catch(() => {});
+        window.setInterval(() => registration.update().catch(() => {}), 5 * 60 * 1000);
+      })
+      .catch(() => {});
+  });
+}
+
+function listenForServiceWorkerUpdate(registration) {
+  if (registration.waiting && navigator.serviceWorker.controller) {
+    handleServiceWorkerWaiting(registration);
+  }
+
+  registration.addEventListener('updatefound', () => {
+    const worker = registration.installing;
+    if (!worker) return;
+
+    worker.addEventListener('statechange', () => {
+      if (worker.state === 'installed' && navigator.serviceWorker.controller) {
+        handleServiceWorkerWaiting(registration);
+      }
+    });
+  });
+}
+
+function handleServiceWorkerWaiting(registration) {
+  state.serviceWorkerRegistration = registration;
+  if (isApplicationBusy()) {
+    showUpdateNotice('pwa');
+    return;
+  }
+  registration.waiting?.postMessage({ type: 'SKIP_WAITING' });
 }
 
 async function loadColumnOrder() {
@@ -7210,17 +7373,17 @@ function calculateLeadTime(entryDate, originalDeliveryDate) {
 }
 
 function updateDaysLatePreview() {
-  el.daysLatePreview.value = calculateDaysLate(el.originalDeliveryDate.value);
+  el.daysLatePreview.value = calculateDaysLate(el.originalDeliveryDate.value, el.finalizationDate.value);
 }
 
-function calculateDaysLate(originalDeliveryDate) {
+function calculateDaysLate(originalDeliveryDate, finalizationDate = '') {
   if (!isValidDateText(originalDeliveryDate)) return '';
   const deliveryDate = parseLocalDate(originalDeliveryDate);
-  const today = todayAtMidnight();
+  const endDate = isValidDateText(finalizationDate) ? parseLocalDate(finalizationDate) : todayAtMidnight();
   if (Number.isNaN(deliveryDate.getTime())) return '';
-  if (today <= deliveryDate) return 0;
+  if (Number.isNaN(endDate.getTime()) || endDate <= deliveryDate) return 0;
 
-  const diff = Math.floor((today - deliveryDate) / 86400000);
+  const diff = Math.floor((endDate - deliveryDate) / 86400000);
   return Math.max(0, diff);
 }
 
@@ -7369,9 +7532,7 @@ el.thirdPartyBody.addEventListener('click', async (event) => {
   if (row) openBillingConsultDialog(row.dataset.orderId, row.dataset.sourceType);
 });
 
-el.downloadShortcut.addEventListener('click', () => {
-  window.location.href = '/api/shortcut';
-});
+el.downloadShortcut.addEventListener('click', handleInstallAppClick);
 
 el.notificationToggle.addEventListener('click', () => {
   const open = el.notificationPanel.hidden;
@@ -8474,10 +8635,7 @@ window.addEventListener('resize', closeColumnFilterMenu);
   const initialPreset = roleAccessPreset('viewer');
   renderUserTabAccess(initialPreset.visibleTabs, initialPreset.editableTabs);
 }
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/service-worker.js').then((registration) => registration.update()).catch(() => {});
-  });
-}
+setupPwaInstall();
+registerServiceWorker();
 startAutoUpdateCheck();
 boot();

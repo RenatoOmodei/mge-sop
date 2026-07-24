@@ -1,6 +1,6 @@
 [build]
-  command = "npm run build:netlify"
-  publish = "dist-netlify"
+  command = "npm run build:netlify:react"
+  publish = "dist-netlify-react"
 
 [build.environment]
   NODE_VERSION = "22"
@@ -13,6 +13,12 @@
   SOP_ENV = "homolog"
 
 [context.branch-deploy.environment]
+  SOP_ENV = "homolog"
+
+[context.react-homolog]
+  command = "npm run build:netlify:react"
+
+[context.react-homolog.environment]
   SOP_ENV = "homolog"
 
 [[headers]]

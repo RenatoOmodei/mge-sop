@@ -276,6 +276,43 @@ CREATE TABLE IF NOT EXISTS quality_alert_acknowledgements (
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS ai_knowledge_sources (
+  id text PRIMARY KEY,
+  title text NOT NULL,
+  source_type text NOT NULL DEFAULT 'manual',
+  scope text NOT NULL DEFAULT 'general',
+  content text NOT NULL DEFAULT '',
+  tags text NOT NULL DEFAULT '',
+  status text NOT NULL DEFAULT 'active',
+  created_by text NOT NULL DEFAULT '',
+  created_at text NOT NULL,
+  updated_at text NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS ai_training_runs (
+  id text PRIMARY KEY,
+  objective text NOT NULL,
+  dataset_scope text NOT NULL DEFAULT 'all',
+  model_target text NOT NULL DEFAULT 'decision-support',
+  status text NOT NULL DEFAULT 'planned',
+  notes text NOT NULL DEFAULT '',
+  result_summary text NOT NULL DEFAULT '',
+  created_by text NOT NULL DEFAULT '',
+  created_at text NOT NULL,
+  updated_at text NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS ai_analysis_history (
+  id text PRIMARY KEY,
+  prompt text NOT NULL,
+  context_scope text NOT NULL DEFAULT 'all',
+  mode text NOT NULL DEFAULT 'rules-engine',
+  response text NOT NULL DEFAULT '',
+  confidence numeric,
+  created_by text NOT NULL DEFAULT '',
+  created_at text NOT NULL
+);
+
 ALTER TABLE third_party_parts
   ADD COLUMN IF NOT EXISTS sales_order_id text NOT NULL DEFAULT '';
 
@@ -374,6 +411,10 @@ CREATE INDEX IF NOT EXISTS idx_quality_alerts_customer ON quality_alerts(custome
 CREATE INDEX IF NOT EXISTS idx_quality_alerts_line_capacity ON quality_alerts(product_line, capacity_tr);
 CREATE INDEX IF NOT EXISTS idx_quality_alerts_status ON quality_alerts(status);
 CREATE INDEX IF NOT EXISTS idx_quality_alert_ack_user_order ON quality_alert_acknowledgements(user_id, order_id);
+CREATE INDEX IF NOT EXISTS idx_ai_knowledge_sources_status ON ai_knowledge_sources(status);
+CREATE INDEX IF NOT EXISTS idx_ai_knowledge_sources_scope ON ai_knowledge_sources(scope);
+CREATE INDEX IF NOT EXISTS idx_ai_training_runs_status ON ai_training_runs(status);
+CREATE INDEX IF NOT EXISTS idx_ai_analysis_history_created_at ON ai_analysis_history(created_at);
 CREATE INDEX IF NOT EXISTS idx_order_statuses_name ON order_statuses(name);
 CREATE INDEX IF NOT EXISTS idx_order_statuses_category ON order_statuses(category);
 CREATE INDEX IF NOT EXISTS idx_order_statuses_flow_type ON order_statuses(flow_type);
