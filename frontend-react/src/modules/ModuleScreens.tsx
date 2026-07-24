@@ -4363,36 +4363,54 @@ export function ApsScreen({ user, realtimeRefreshKey = 0, configFocus }: ModuleP
     setConfig((current) => normalizeApsConfig(updater(cloneApsConfig(current))));
   }
 
+  async function persistApsConfig(nextConfig: ApsConfig, message: string) {
+    if (!canEditAps) return;
+    setSuccess('');
+    await runAction(setError, async () => {
+      const payload = await api<{ config?: Row }>('/api/aps/config', { method: 'PUT', body: { config: nextConfig } });
+      setConfig(normalizeApsConfig(payload.config || nextConfig));
+      setRefresh((value) => value + 1);
+      setSuccess(message);
+    });
+  }
+
+  function commitConfig(updater: (current: ApsConfig) => ApsConfig, message: string) {
+    if (!canEditAps) return;
+    const nextConfig = normalizeApsConfig(updater(cloneApsConfig(config)));
+    setConfig(nextConfig);
+    void persistApsConfig(nextConfig, message);
+  }
+
   function updateSettings(patch: Partial<ApsSettings>) {
     updateConfig((current) => ({ ...current, settings: { ...current.settings, ...patch } }));
   }
 
   function saveOperation(index: number, operation: ApsOperation) {
-    updateConfig((current) => ({
+    commitConfig((current) => ({
       ...current,
       operations: current.operations.map((row, rowIndex) => (rowIndex === index ? normalizeApsOperation(operation) : row))
-    }));
+    }), 'Operacao APS salva no banco.');
   }
 
   function saveTimeRecord(index: number | null, record: ApsTimeRecord) {
-    updateConfig((current) => {
+    commitConfig((current) => {
       const cleanRecord = normalizeApsTimeRecord(record);
       const timeRecords = index !== null && current.timeRecords[index]
         ? current.timeRecords.map((row, rowIndex) => (rowIndex === index ? cleanRecord : row))
         : [...current.timeRecords, cleanRecord];
       return { ...current, timeRecords };
-    });
+    }, 'Tempo APS salvo no banco.');
   }
 
   function removeTimeRecord(id: string) {
-    updateConfig((current) => ({
+    commitConfig((current) => ({
       ...current,
       timeRecords: current.timeRecords.filter((record) => record.id !== id)
-    }));
+    }), 'Tempo APS excluido do banco.');
   }
 
   function removeWorkCenter(code: string) {
-    updateConfig((current) => ({
+    commitConfig((current) => ({
       ...current,
       workCenters: current.workCenters.filter((center) => center.code !== code),
       operators: current.operators.map((operator) => ({
@@ -4403,11 +4421,11 @@ export function ApsScreen({ user, realtimeRefreshKey = 0, configFocus }: ModuleP
         ...operation,
         allowedCenters: operation.allowedCenters.filter((centerCode) => centerCode !== code)
       }))
-    }));
+    }), 'Centro de trabalho excluido e salvo no banco.');
   }
 
   function saveWorkCenter(index: number | null, center: ApsWorkCenter) {
-    updateConfig((current) => {
+    commitConfig((current) => {
       const cleanCenter = normalizeApsWorkCenter(center);
       const previousCode = index !== null ? current.workCenters[index]?.code : '';
       const workCenters = index !== null && current.workCenters[index]
@@ -4427,7 +4445,7 @@ export function ApsScreen({ user, realtimeRefreshKey = 0, configFocus }: ModuleP
           allowedCenters: replaceCenterCode(operation.allowedCenters)
         }))
       };
-    });
+    }, 'Centro de trabalho salvo no banco.');
   }
 
   function updateOperator(index: number, patch: Partial<ApsOperator>) {
@@ -4465,13 +4483,7 @@ export function ApsScreen({ user, realtimeRefreshKey = 0, configFocus }: ModuleP
 
   async function saveConfig() {
     if (!canEditAps) return;
-    setSuccess('');
-    await runAction(setError, async () => {
-      const payload = await api<{ config?: Row }>('/api/aps/config', { method: 'PUT', body: { config } });
-      setConfig(normalizeApsConfig(payload.config || config));
-      setRefresh((value) => value + 1);
-      setSuccess('Configuracao APS salva.');
-    });
+    await persistApsConfig(config, 'Configuracao APS salva.');
   }
 
   function exportSchedule() {
