@@ -125,13 +125,6 @@ type PurchasePendingMatch = {
   items: PurchasePendingItem[];
 };
 
-type StatusDetail = {
-  id: string;
-  name: string;
-  category: 'production' | 'auxiliary' | string;
-  sortOrder?: number;
-};
-
 type OrdersSummary = {
   totalOrders: number;
   totalEquipment: number;
@@ -290,7 +283,6 @@ export function OrdersScreen({ user, realtimeRefreshKey = 0 }: { user: CurrentUs
   const [total, setTotal] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
   const [statuses, setStatuses] = useState<string[]>([]);
-  const [statusDetails, setStatusDetails] = useState<StatusDetail[]>([]);
   const [productionStatuses, setProductionStatuses] = useState<string[]>([]);
   const [customers, setCustomers] = useState<string[]>([]);
   const [qualityAlerts, setQualityAlerts] = useState<QualityAlert[]>([]);
@@ -338,13 +330,12 @@ export function OrdersScreen({ user, realtimeRefreshKey = 0 }: { user: CurrentUs
   useEffect(() => {
     let ignore = false;
     Promise.all([
-      api<{ statuses: string[]; statusDetails: StatusDetail[]; productionStatuses: string[] }>('/api/status-values'),
+      api<{ statuses: string[]; productionStatuses: string[] }>('/api/status-values'),
       api<{ customers: string[] }>('/api/customers').catch(() => ({ customers: [] }))
     ])
       .then(([data, customerData]) => {
         if (ignore) return;
         setStatuses(data.statuses || []);
-        setStatusDetails(data.statusDetails || []);
         setProductionStatuses(data.productionStatuses || []);
         setCustomers(customerData.customers || []);
       })
@@ -491,14 +482,6 @@ export function OrdersScreen({ user, realtimeRefreshKey = 0 }: { user: CurrentUs
   }, []);
 
   const productionSet = useMemo(() => new Set(productionStatuses), [productionStatuses]);
-  const statusCategoryByName = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const status of statusDetails) {
-      map.set(status.name, status.category);
-    }
-    return map;
-  }, [statusDetails]);
-
   function updateTableState(patch: Partial<OrdersTableState>) {
     setPage(1);
     setTableState((current) => normalizeTableState({ ...current, ...patch }));
@@ -1133,10 +1116,9 @@ export function OrdersScreen({ user, realtimeRefreshKey = 0 }: { user: CurrentUs
                       ) : column.key === 'status' ? (
                         <OrderStatusCell
                           order={order}
-                          statusCategory={statusCategoryByName.get(order.status)}
                           onDocumentsClick={() => setDocumentsDialogOrder(order)}
                         />
-                      ) : orderCellContent(order, column.key, statusCategoryByName)}
+                      ) : orderCellContent(order, column.key)}
                     </td>
                   ))}
                   <td className="actions-cell" data-label="Acoes">
@@ -1176,7 +1158,6 @@ export function OrdersScreen({ user, realtimeRefreshKey = 0 }: { user: CurrentUs
               canRelease={canReleaseBilling(order)}
               releaseBusy={releaseBusyId === order.id}
               rowClass={orderRowClass(order, productionSet)}
-              statusCategory={statusCategoryByName.get(order.status)}
               qualityMatches={qualityMatchesForOrder(order, qualityAlerts, qualityAcknowledgements)}
               onSelect={(checked) => toggleOrderSelection(order.id, checked)}
               onOpen={() => setSelectedOrder(order)}
@@ -1425,7 +1406,6 @@ function OrderMobileCard({
   canRelease,
   releaseBusy,
   rowClass,
-  statusCategory,
   qualityMatches,
   onSelect,
   onOpen,
@@ -1439,7 +1419,6 @@ function OrderMobileCard({
   canRelease: boolean;
   releaseBusy: boolean;
   rowClass: string;
-  statusCategory?: string;
   qualityMatches: QualityMatchResult;
   onSelect: (checked: boolean) => void;
   onOpen: () => void;
@@ -1459,7 +1438,7 @@ function OrderMobileCard({
           />
           <strong>{order.orderNumber || '-'}</strong>
         </label>
-        <OrderStatusCell order={order} statusCategory={statusCategory} onDocumentsClick={onDocuments} />
+        <OrderStatusCell order={order} onDocumentsClick={onDocuments} />
       </header>
 
       <div className="order-mobile-subtitle">
@@ -1584,7 +1563,7 @@ function OrderNumberCell({
   );
 }
 
-function OrderStatusCell({ order, statusCategory, onDocumentsClick }: { order: SalesOrder; statusCategory?: string; onDocumentsClick: () => void }) {
+function OrderStatusCell({ order, onDocumentsClick }: { order: SalesOrder; onDocumentsClick: () => void }) {
   return (
     <span className="status-stack">
       <span className="status-line">
@@ -1603,7 +1582,6 @@ function OrderStatusCell({ order, statusCategory, onDocumentsClick }: { order: S
         </button>
         <span className={`status ${statusClass(order.status)}`}>{order.status || '-'}</span>
       </span>
-      {statusCategory === 'production' && <small>Producao</small>}
     </span>
   );
 }
@@ -2424,7 +2402,7 @@ function stickyStyle(index: number, column: OrderColumn, firstColumnWidth: numbe
   return style;
 }
 
-function orderCellContent(order: SalesOrder, key: OrderColumnKey, statusCategoryByName: Map<string, string>) {
+function orderCellContent(order: SalesOrder, key: OrderColumnKey) {
   if (key === 'orderNumber') {
     return (
       <span className="order-number-alert">
@@ -2451,7 +2429,6 @@ function orderCellContent(order: SalesOrder, key: OrderColumnKey, statusCategory
     return (
       <span className="status-stack">
         <span className={`status ${statusClass(order.status)}`}>{order.status || '-'}</span>
-        {statusCategoryByName.get(order.status) === 'production' && <small>Producao</small>}
         {order.photoCount > 0 && <small>{order.photoCount} doc.</small>}
       </span>
     );
