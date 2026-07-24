@@ -13,6 +13,32 @@ function createSqliteDatabase(file) {
 
 const STATUS_VALUES = ['Em análise', 'Liberado', 'Em produção', 'Faturado', 'Cancelado'];
 const TAB_KEYS = ['orders', 'dashboard', 'billing', 'loading', 'thirdParty', 'pcp', 'sequencing', 'aps', 'products', 'quality', 'reports', 'ai', 'admin'];
+const SCREEN_ACCESS_TABS = {
+  orders: 'orders',
+  dashboard: 'dashboard',
+  products: 'products',
+  billing: 'billing',
+  loading: 'loading',
+  thirdParty: 'thirdParty',
+  purchasePending: 'pcp',
+  pcp: 'pcp',
+  sequencing: 'sequencing',
+  aps: 'aps',
+  quality: 'quality',
+  qualityRnc: 'quality',
+  ai: 'ai',
+  reports: 'reports',
+  system: 'admin',
+  adminStatus: 'admin',
+  adminCustomers: 'admin',
+  adminPcpMotives: 'admin',
+  adminUsers: 'admin',
+  adminApsOperators: 'aps',
+  adminApsCalendar: 'aps',
+  adminApsWorkCenters: 'aps',
+  adminApsOperations: 'aps'
+};
+const SCREEN_PERMISSION_KEYS = Object.keys(SCREEN_ACCESS_TABS).map((screen) => `screen:${screen}`);
 const USER_TAB_KEYS = TAB_KEYS.filter((tab) => !['admin', 'ai'].includes(tab));
 const DEFAULT_VISIBLE_TABS = USER_TAB_KEYS;
 const DEFAULT_EDITABLE_TABS = ['orders', 'billing', 'loading', 'thirdParty', 'pcp'];
@@ -4382,10 +4408,21 @@ function sanitizeUserInput(input) {
     username: String(input.username || '').trim().toLowerCase(),
     name: String(input.name || '').trim(),
     role,
-    canEditOrders: role === 'admin' || canEditOrders || editableTabs.includes('orders'),
+    canEditOrders: role === 'admin' || canEditOrders || permissionListAllowsTab(editableTabs, 'orders'),
     visibleTabs,
     editableTabs
   };
+}
+
+function permissionListAllowsTab(permissions, tab) {
+  return Array.isArray(permissions) && permissions.some((permission) => permissionAccessTab(permission) === tab);
+}
+
+function permissionAccessTab(permission) {
+  const value = String(permission || '').trim();
+  if (TAB_KEYS.includes(value)) return value;
+  if (!value.startsWith('screen:')) return '';
+  return SCREEN_ACCESS_TABS[value.slice(7)] || '';
 }
 
 function normalizeRole(role) {
@@ -5585,7 +5622,7 @@ function normalizeTabList(value, fallback = []) {
     }
   }
 
-  const allowed = new Set(TAB_KEYS);
+  const allowed = new Set([...TAB_KEYS, ...SCREEN_PERMISSION_KEYS]);
   const seen = new Set();
   const source = Array.isArray(raw) && raw.length ? raw : fallback;
   return source
@@ -5945,5 +5982,7 @@ module.exports = {
   LocalDatabase,
   STATUS_VALUES,
   TAB_KEYS,
+  SCREEN_ACCESS_TABS,
+  SCREEN_PERMISSION_KEYS,
   validateOrder
 };

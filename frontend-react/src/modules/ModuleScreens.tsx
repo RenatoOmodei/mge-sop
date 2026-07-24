@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ChangeEvent, FormEvent, ReactNode } from 'react';
 import { api } from '../api/client';
-import type { CurrentUser, TabKey, UserRole } from '../App';
+import type { CurrentUser, PermissionKey, ScreenKey, TabKey, UserRole } from '../App';
 import { DocumentPreviewDialog, downloadPreviewDocument, type PreviewDocument } from '../components/DocumentPreviewDialog';
 import { IconText } from '../components/Icon';
 
@@ -191,8 +191,8 @@ type AdminUserForm = {
   password: string;
   role: UserRole;
   canEditOrders: boolean;
-  visibleTabs: TabKey[];
-  editableTabs: TabKey[];
+  visibleTabs: PermissionKey[];
+  editableTabs: PermissionKey[];
 };
 type QualityAlertFormState = {
   orderId: string;
@@ -7047,7 +7047,8 @@ const rncActionColumns = [
 ];
 
 export function AdminScreen({ user, realtimeRefreshKey = 0, section = 'all' }: ModuleProps & { section?: AdminScreenSection }) {
-  const isAdmin = user.role === 'admin';
+  const canViewAdmin = user.role === 'admin' || canView(user, 'admin');
+  const canManageAdmin = user.role === 'admin' || canEdit(user, 'admin');
   const [health, setHealth] = useState<Row | null>(null);
   const [users, setUsers] = useState<Row[]>([]);
   const [statuses, setStatuses] = useState<Row[]>([]);
@@ -7066,7 +7067,7 @@ export function AdminScreen({ user, realtimeRefreshKey = 0, section = 'all' }: M
   const [refresh, setRefresh] = useState(0);
 
   useEffect(() => {
-    if (!isAdmin) return;
+    if (!canViewAdmin) return;
     let ignore = false;
     Promise.all([
       api<{ health?: Row }>('/api/admin/health'),
@@ -7091,10 +7092,14 @@ export function AdminScreen({ user, realtimeRefreshKey = 0, section = 'all' }: M
     return () => {
       ignore = true;
     };
-  }, [refresh, realtimeRefreshKey, isAdmin]);
+  }, [refresh, realtimeRefreshKey, canViewAdmin]);
 
   async function adminAction(message: string, action: () => Promise<void>) {
-    if (!isAdmin) return;
+    if (!canManageAdmin) {
+      setSuccess('');
+      setError('Seu perfil permite consulta, mas nao permite alterar cadastros.');
+      return;
+    }
     setSuccess('');
     await runAction(setError, async () => {
       await action();
@@ -7225,7 +7230,7 @@ export function AdminScreen({ user, realtimeRefreshKey = 0, section = 'all' }: M
   const frameTitle = adminSectionTitle(section);
   const frameSubtitle = adminSectionSubtitle(section);
 
-  if (!isAdmin) {
+  if (!canViewAdmin) {
     return (
       <ModuleFrame title={frameTitle} subtitle="Area restrita ao administrador." error={error}>
         <section className="module-panel">
@@ -7250,8 +7255,8 @@ export function AdminScreen({ user, realtimeRefreshKey = 0, section = 'all' }: M
       </div>
       {showSystem && (
         <div className="module-toolbar">
-          <button className="btn primary" type="button" onClick={createBackup}><IconText name="save">Criar backup</IconText></button>
-          <button className="btn" type="button" onClick={testBackup}><IconText name="check">Testar restauracao</IconText></button>
+          <button className="btn primary" type="button" disabled={!canManageAdmin} onClick={createBackup}><IconText name="save">Criar backup</IconText></button>
+          <button className="btn" type="button" disabled={!canManageAdmin} onClick={testBackup}><IconText name="check">Testar restauracao</IconText></button>
           <button className="btn" type="button" onClick={() => setRefresh((value) => value + 1)}><IconText name="refresh">Atualizar</IconText></button>
         </div>
       )}
@@ -7277,11 +7282,11 @@ export function AdminScreen({ user, realtimeRefreshKey = 0, section = 'all' }: M
               { key: 'name', label: 'Arquivo' },
               { key: 'size', label: 'Tamanho', format: formatFileSize },
               { key: 'createdAt', label: 'Criado em', format: formatDateTime }
-            ]} actions={(row) => (
+            ]} actions={canManageAdmin ? (row) => (
               <div className="table-actions">
                 <button className="btn" type="button" onClick={() => restoreBackup(row)}><IconText name="history">Restaurar</IconText></button>
               </div>
-            )} />
+            ) : undefined} />
           </section>
         </section>
       )}
@@ -7317,7 +7322,7 @@ export function AdminScreen({ user, realtimeRefreshKey = 0, section = 'all' }: M
               </select>
             </label>
             <div className="admin-form-actions">
-              <button className="btn primary" type="submit"><IconText name="save">{statusEditingId ? 'Salvar status' : 'Cadastrar status'}</IconText></button>
+              <button className="btn primary" type="submit" disabled={!canManageAdmin}><IconText name="save">{statusEditingId ? 'Salvar status' : 'Cadastrar status'}</IconText></button>
               {statusEditingId && (
                 <button className="btn" type="button" onClick={() => {
                   setStatusEditingId('');
@@ -7331,7 +7336,7 @@ export function AdminScreen({ user, realtimeRefreshKey = 0, section = 'all' }: M
             { key: 'name', label: 'Status' },
             { key: 'category', label: 'Tipo', format: statusCategoryLabelReact },
             { key: 'flowType', label: 'Fluxo', format: statusFlowLabelReact }
-          ]} actions={(row) => (
+          ]} actions={canManageAdmin ? (row) => (
             <div className="table-actions">
               <button className="btn" type="button" onClick={() => {
                 setStatusEditingId(String(row.id || ''));
@@ -7339,7 +7344,7 @@ export function AdminScreen({ user, realtimeRefreshKey = 0, section = 'all' }: M
               }}><IconText name="edit">Editar</IconText></button>
               <button className="btn" type="button" onClick={() => deleteStatus(row)}><IconText name="trash">Excluir</IconText></button>
             </div>
-          )} />
+          ) : undefined} />
         </section>}
 
         {showCustomers && <section className="module-panel admin-card">
@@ -7353,7 +7358,7 @@ export function AdminScreen({ user, realtimeRefreshKey = 0, section = 'all' }: M
               <input className="input" value={customerForm.name} onChange={(event) => setCustomerForm({ name: event.target.value })} required />
             </label>
             <div className="admin-form-actions">
-              <button className="btn primary" type="submit"><IconText name="save">{customerEditingId ? 'Salvar cliente' : 'Cadastrar cliente'}</IconText></button>
+              <button className="btn primary" type="submit" disabled={!canManageAdmin}><IconText name="save">{customerEditingId ? 'Salvar cliente' : 'Cadastrar cliente'}</IconText></button>
               {customerEditingId && (
                 <button className="btn" type="button" onClick={() => {
                   setCustomerEditingId('');
@@ -7365,7 +7370,7 @@ export function AdminScreen({ user, realtimeRefreshKey = 0, section = 'all' }: M
           <DataTable rows={customers} columns={[
             { key: 'name', label: 'Cliente' },
             { key: 'createdAt', label: 'Criado em', format: formatDateTime }
-          ]} actions={(row) => (
+          ]} actions={canManageAdmin ? (row) => (
             <div className="table-actions">
               <button className="btn" type="button" onClick={() => {
                 setCustomerEditingId(String(row.id || ''));
@@ -7373,7 +7378,7 @@ export function AdminScreen({ user, realtimeRefreshKey = 0, section = 'all' }: M
               }}><IconText name="edit">Editar</IconText></button>
               <button className="btn" type="button" onClick={() => deleteCustomer(row)}><IconText name="trash">Excluir</IconText></button>
             </div>
-          )} />
+          ) : undefined} />
         </section>}
 
         {showPcpMotives && <section className="module-panel admin-card">
@@ -7395,7 +7400,7 @@ export function AdminScreen({ user, realtimeRefreshKey = 0, section = 'all' }: M
               <input className="input" value={pcpMotiveForm.name} onChange={(event) => setPcpMotiveForm((form) => ({ ...form, name: event.target.value }))} required />
             </label>
             <div className="admin-form-actions">
-              <button className="btn primary" type="submit"><IconText name="plus">Cadastrar motivo</IconText></button>
+              <button className="btn primary" type="submit" disabled={!canManageAdmin}><IconText name="plus">Cadastrar motivo</IconText></button>
             </div>
           </form>
           <DataTable rows={pcpMotives} columns={[
@@ -7408,7 +7413,7 @@ export function AdminScreen({ user, realtimeRefreshKey = 0, section = 'all' }: M
         {showUsers && <section className="module-panel admin-card admin-card-wide">
           <div className="panel-title">
             <h3>{userEditingId ? 'Editar usuario' : 'Cadastrar usuario'}</h3>
-            <span>Perfis e permissoes por aba</span>
+            <span>Perfis e permissoes por tela</span>
           </div>
           <form className="admin-user-form" onSubmit={submitUser}>
             <div className="admin-form-grid">
@@ -7437,9 +7442,17 @@ export function AdminScreen({ user, realtimeRefreshKey = 0, section = 'all' }: M
             </div>
             <div className="admin-permission-grid">
               <fieldset>
-                <legend>Abas visiveis</legend>
+                <legend>Telas visiveis</legend>
+                <div className="permission-actions">
+                  <button className="btn" type="button" disabled={userForm.role === 'admin'} onClick={() => setUserForm((form) => adminSetAllVisible(form))}>
+                    Todas
+                  </button>
+                  <button className="btn" type="button" disabled={userForm.role === 'admin'} onClick={() => setUserForm((form) => adminClearVisible(form))}>
+                    Limpar
+                  </button>
+                </div>
                 <div className="permission-check-grid">
-                  {adminTabOptions.map((tab) => (
+                  {adminPermissionOptions.map((tab) => (
                     <label key={tab.key}>
                       <input
                         type="checkbox"
@@ -7453,9 +7466,17 @@ export function AdminScreen({ user, realtimeRefreshKey = 0, section = 'all' }: M
                 </div>
               </fieldset>
               <fieldset>
-                <legend>Abas editaveis</legend>
+                <legend>Telas editaveis</legend>
+                <div className="permission-actions">
+                  <button className="btn" type="button" disabled={userForm.role === 'admin'} onClick={() => setUserForm((form) => adminSetAllEditable(form))}>
+                    Todas visiveis
+                  </button>
+                  <button className="btn" type="button" disabled={userForm.role === 'admin'} onClick={() => setUserForm((form) => ({ ...form, editableTabs: [] }))}>
+                    Limpar
+                  </button>
+                </div>
                 <div className="permission-check-grid">
-                  {adminTabOptions.map((tab) => (
+                  {adminPermissionOptions.map((tab) => (
                     <label key={tab.key}>
                       <input
                         type="checkbox"
@@ -7470,7 +7491,7 @@ export function AdminScreen({ user, realtimeRefreshKey = 0, section = 'all' }: M
               </fieldset>
             </div>
             <div className="admin-form-actions">
-              <button className="btn primary" type="submit"><IconText name="save">{userEditingId ? 'Salvar usuario' : 'Cadastrar usuario'}</IconText></button>
+              <button className="btn primary" type="submit" disabled={!canManageAdmin}><IconText name="save">{userEditingId ? 'Salvar usuario' : 'Cadastrar usuario'}</IconText></button>
               {userEditingId && (
                 <button className="btn" type="button" onClick={() => {
                   setUserEditingId('');
@@ -7485,8 +7506,8 @@ export function AdminScreen({ user, realtimeRefreshKey = 0, section = 'all' }: M
             { key: 'role', label: 'Perfil', format: adminRoleLabel },
             { key: 'canEditOrders', label: 'Edita pedidos', format: yesNo },
             { key: 'visibleTabs', label: 'Visualiza', format: formatTabList },
-            { key: 'editableTabs', label: 'Edita abas', format: formatTabList }
-          ]} actions={(row) => (
+            { key: 'editableTabs', label: 'Edita telas', format: formatTabList }
+          ]} actions={canManageAdmin ? (row) => (
             <div className="table-actions">
               <button className="btn" type="button" onClick={() => {
                 setUserEditingId(String(row.id || ''));
@@ -7494,7 +7515,7 @@ export function AdminScreen({ user, realtimeRefreshKey = 0, section = 'all' }: M
               }}><IconText name="edit">Editar</IconText></button>
               <button className="btn" type="button" disabled={String(row.id || '') === user.id || String(row.role || '') === 'admin'} onClick={() => deleteUser(row)}><IconText name="trash">Excluir</IconText></button>
             </div>
-          )} />
+          ) : undefined} />
         </section>}
       </section>
       )}
@@ -7569,7 +7590,7 @@ function emptyAdminUserForm(): AdminUserForm {
     password: '',
     role: 'viewer',
     canEditOrders: false,
-    visibleTabs: ['orders', 'dashboard', 'products', 'reports'],
+    visibleTabs: adminPermissionKeysForAccessTabs(['orders', 'dashboard', 'products', 'reports']),
     editableTabs: []
   };
 }
@@ -7628,9 +7649,9 @@ function adminUserRoleForm(form: AdminUserForm, roleValue: UserRole): AdminUserF
   };
 }
 
-function toggleAdminVisibleTab(form: AdminUserForm, tab: TabKey): AdminUserForm {
+function toggleAdminVisibleTab(form: AdminUserForm, tab: PermissionKey): AdminUserForm {
   if (form.role === 'admin') return form;
-  const visibleTabs = toggleStringValue(form.visibleTabs, tab) as TabKey[];
+  const visibleTabs = toggleStringValue(form.visibleTabs, tab);
   return {
     ...form,
     visibleTabs,
@@ -7638,11 +7659,36 @@ function toggleAdminVisibleTab(form: AdminUserForm, tab: TabKey): AdminUserForm 
   };
 }
 
-function toggleAdminEditableTab(form: AdminUserForm, tab: TabKey): AdminUserForm {
+function toggleAdminEditableTab(form: AdminUserForm, tab: PermissionKey): AdminUserForm {
   if (form.role === 'admin' || !form.visibleTabs.includes(tab)) return form;
   return {
     ...form,
-    editableTabs: toggleStringValue(form.editableTabs, tab) as TabKey[]
+    editableTabs: toggleStringValue(form.editableTabs, tab)
+  };
+}
+
+function adminSetAllVisible(form: AdminUserForm): AdminUserForm {
+  if (form.role === 'admin') return form;
+  return {
+    ...form,
+    visibleTabs: adminAllTabs()
+  };
+}
+
+function adminClearVisible(form: AdminUserForm): AdminUserForm {
+  if (form.role === 'admin') return form;
+  return {
+    ...form,
+    visibleTabs: [],
+    editableTabs: []
+  };
+}
+
+function adminSetAllEditable(form: AdminUserForm): AdminUserForm {
+  if (form.role === 'admin') return form;
+  return {
+    ...form,
+    editableTabs: form.visibleTabs
   };
 }
 
@@ -7650,13 +7696,21 @@ function toggleStringValue<T extends string>(values: T[], value: T): T[] {
   return values.includes(value) ? values.filter((item) => item !== value) : [...values, value];
 }
 
-function adminAllTabs(): TabKey[] {
-  return adminTabOptions.map((tab) => tab.key);
+function adminAllTabs(): PermissionKey[] {
+  return adminPermissionOptions.map((tab) => tab.key);
 }
 
-function adminTabList(value: unknown): TabKey[] {
+function adminTabList(rawValue: unknown): PermissionKey[] {
   const allowed = new Set(adminAllTabs());
-  return stringList(value).filter((tab): tab is TabKey => allowed.has(tab as TabKey));
+  const output: PermissionKey[] = [];
+  for (const value of stringList(rawValue)) {
+    if (allowed.has(value as PermissionKey)) {
+      output.push(value as PermissionKey);
+      continue;
+    }
+    output.push(...adminPermissionKeysForAccessTabs([value as TabKey]));
+  }
+  return Array.from(new Set(output));
 }
 
 function adminUserRole(value: unknown): UserRole {
@@ -7674,8 +7728,8 @@ function formatTabList(value: unknown) {
   return tabs.length ? tabs.map(adminTabLabel).join(', ') : '-';
 }
 
-function adminTabLabel(tab: TabKey) {
-  return adminTabOptions.find((option) => option.key === tab)?.label || tab;
+function adminTabLabel(tab: PermissionKey) {
+  return adminPermissionOptions.find((option) => option.key === tab)?.label || tab;
 }
 
 function statusCategoryLabelReact(value: unknown) {
@@ -7734,21 +7788,42 @@ const adminRoleOptions: Array<{ key: UserRole; label: string }> = [
   { key: 'user', label: 'Usuario' }
 ];
 
-const adminTabOptions: Array<{ key: TabKey; label: string }> = [
-  { key: 'orders', label: 'Pedidos de venda' },
-  { key: 'dashboard', label: 'Dashboard' },
-  { key: 'billing', label: 'Faturamento' },
-  { key: 'loading', label: 'Aguardando carregamento' },
-  { key: 'thirdParty', label: 'Terceiros' },
-  { key: 'pcp', label: 'Pendencias PCP' },
-  { key: 'sequencing', label: 'Sequenciamento' },
-  { key: 'aps', label: 'APS' },
-  { key: 'products', label: 'Produtos' },
-  { key: 'quality', label: 'Qualidade' },
-  { key: 'reports', label: 'Relatorios' },
-  { key: 'ai', label: 'Inteligencia Artificial' },
-  { key: 'admin', label: 'Cadastros' }
+const adminPermissionOptions: Array<{ key: PermissionKey; label: string; accessTab: TabKey }> = [
+  { key: screenPermissionKey('orders'), label: 'S&OP / Pedidos de vendas', accessTab: 'orders' },
+  { key: screenPermissionKey('dashboard'), label: 'S&OP / Dashboards', accessTab: 'dashboard' },
+  { key: screenPermissionKey('products'), label: 'S&OP / Produtos', accessTab: 'products' },
+  { key: screenPermissionKey('billing'), label: 'Faturamento / Faturamento', accessTab: 'billing' },
+  { key: screenPermissionKey('loading'), label: 'Supply / Aguardando carregamento', accessTab: 'loading' },
+  { key: screenPermissionKey('thirdParty'), label: 'Supply / Terceiros', accessTab: 'thirdParty' },
+  { key: screenPermissionKey('purchasePending'), label: 'Supply / Pedidos de compras pendentes', accessTab: 'pcp' },
+  { key: screenPermissionKey('pcp'), label: 'Supply / Pendencias PCP', accessTab: 'pcp' },
+  { key: screenPermissionKey('sequencing'), label: 'Supply / Sequenciamento Projetos', accessTab: 'sequencing' },
+  { key: screenPermissionKey('aps'), label: 'Supply / APS', accessTab: 'aps' },
+  { key: screenPermissionKey('quality'), label: 'Qualidade / Alertas', accessTab: 'quality' },
+  { key: screenPermissionKey('qualityRnc'), label: 'Qualidade / RNC A3', accessTab: 'quality' },
+  { key: screenPermissionKey('ai'), label: 'IA / Bancada de IA', accessTab: 'ai' },
+  { key: screenPermissionKey('reports'), label: 'Gestao / Relatorio de atividades', accessTab: 'reports' },
+  { key: screenPermissionKey('system'), label: 'Gestao / Sistema', accessTab: 'admin' },
+  { key: screenPermissionKey('adminStatus'), label: 'Cadastros / Cadastro Status', accessTab: 'admin' },
+  { key: screenPermissionKey('adminCustomers'), label: 'Cadastros / Cadastro cliente', accessTab: 'admin' },
+  { key: screenPermissionKey('adminPcpMotives'), label: 'Cadastros / Cadastro de motivos PCP', accessTab: 'admin' },
+  { key: screenPermissionKey('adminUsers'), label: 'Cadastros / Cadastro de usuarios', accessTab: 'admin' },
+  { key: screenPermissionKey('adminApsOperators'), label: 'Cadastros / Cadastro de operadores', accessTab: 'aps' },
+  { key: screenPermissionKey('adminApsCalendar'), label: 'Cadastros / Calendario produtivo', accessTab: 'aps' },
+  { key: screenPermissionKey('adminApsWorkCenters'), label: 'Cadastros / Centro de trabalho', accessTab: 'aps' },
+  { key: screenPermissionKey('adminApsOperations'), label: 'Cadastros / Operacoes', accessTab: 'aps' }
 ];
+
+function screenPermissionKey(screen: ScreenKey): PermissionKey {
+  return `screen:${screen}` as PermissionKey;
+}
+
+function adminPermissionKeysForAccessTabs(tabs: TabKey[]) {
+  const requested = new Set(tabs);
+  return adminPermissionOptions
+    .filter((option) => requested.has(option.accessTab))
+    .map((option) => option.key);
+}
 
 const aiContextOptions = [
   { key: 'all', label: 'Geral' },
@@ -11377,11 +11452,26 @@ function arrayCount(value: unknown) {
 }
 
 function canEdit(user: CurrentUser, tab: TabKey) {
-  return user.role === 'admin' || user.editableTabs.includes(tab);
+  return user.role === 'admin' || permissionListAllowsTab(user.editableTabs, tab);
 }
 
 function canView(user: CurrentUser, tab: TabKey) {
-  return user.role === 'admin' || user.visibleTabs.includes(tab);
+  return user.role === 'admin' || permissionListAllowsTab(user.visibleTabs, tab);
+}
+
+function permissionListAllowsTab(permissions: readonly PermissionKey[], tab: TabKey) {
+  return permissions.some((permission) => permissionAccessTab(permission) === tab);
+}
+
+function permissionAccessTab(permission: PermissionKey | string): TabKey | '' {
+  const value = String(permission || '');
+  if (adminLegacyTabKeys().includes(value as TabKey)) return value as TabKey;
+  if (!value.startsWith('screen:')) return '';
+  return adminPermissionOptions.find((option) => option.key === value)?.accessTab || '';
+}
+
+function adminLegacyTabKeys(): TabKey[] {
+  return ['orders', 'dashboard', 'billing', 'loading', 'thirdParty', 'pcp', 'sequencing', 'aps', 'products', 'quality', 'reports', 'ai', 'admin'];
 }
 
 async function runAction(setError: (message: string) => void, action: () => Promise<void>) {

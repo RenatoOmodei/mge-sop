@@ -5,7 +5,7 @@ const https = require('https');
 const os = require('os');
 const path = require('path');
 const defaultConfig = require('./config');
-const { LocalDatabase, TAB_KEYS, validateOrder } = require('./database');
+const { LocalDatabase, TAB_KEYS, SCREEN_ACCESS_TABS, validateOrder } = require('./database');
 const { PostgresDatabase } = require('./postgres-database');
 const { createSignedCookieValue, randomToken, readSignedCookieValue, verifyPassword } = require('./security');
 
@@ -1519,7 +1519,8 @@ async function handleApi(context) {
   }
 
   if (pathname.startsWith('/api/admin/')) {
-    if (!isAdmin(session)) {
+    const allowed = req.method === 'GET' ? canViewTab(session, 'admin') : canEditTab(session, 'admin');
+    if (!allowed) {
       sendJson(res, 403, { error: 'Acesso restrito ao administrador.' });
       return;
     }
@@ -3037,7 +3038,7 @@ function canViewTab(session, tab) {
   if (!session || !session.user) return false;
   if (!TAB_KEYS.includes(tab)) return false;
   if (isAdmin(session)) return true;
-  return Array.isArray(session.user.visibleTabs) && session.user.visibleTabs.includes(tab);
+  return permissionListAllowsTab(session.user.visibleTabs, tab);
 }
 
 function canViewAnyTab(session, tabs) {
@@ -3048,7 +3049,18 @@ function canEditTab(session, tab) {
   if (!session || !session.user) return false;
   if (!TAB_KEYS.includes(tab)) return false;
   if (isAdmin(session)) return true;
-  return Array.isArray(session.user.editableTabs) && session.user.editableTabs.includes(tab);
+  return permissionListAllowsTab(session.user.editableTabs, tab);
+}
+
+function permissionListAllowsTab(permissions, tab) {
+  return Array.isArray(permissions) && permissions.some((permission) => permissionAccessTab(permission) === tab);
+}
+
+function permissionAccessTab(permission) {
+  const value = String(permission || '').trim();
+  if (TAB_KEYS.includes(value)) return value;
+  if (!value.startsWith('screen:')) return '';
+  return SCREEN_ACCESS_TABS[value.slice(7)] || '';
 }
 
 function canEditOrders(session) {

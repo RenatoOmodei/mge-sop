@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, ChangeEvent, FormEvent } from 'react';
 import { api } from '../api/client';
-import type { CurrentUser } from '../App';
+import type { CurrentUser, PermissionKey, TabKey } from '../App';
 import { DocumentPreviewDialog, downloadPreviewDocument, type PreviewDocument } from '../components/DocumentPreviewDialog';
 import { IconText } from '../components/Icon';
 
@@ -311,8 +311,8 @@ export function OrdersScreen({ user, realtimeRefreshKey = 0 }: { user: CurrentUs
   const tableWrapRef = useRef<HTMLDivElement | null>(null);
   const tableRef = useRef<HTMLTableElement | null>(null);
   const syncingScrollRef = useRef(false);
-  const canEditOrders = user.role === 'admin' || user.canEditOrders || user.editableTabs.includes('orders');
-  const canLoadPurchasePending = user.role === 'admin' || user.visibleTabs.includes('orders') || user.visibleTabs.includes('pcp');
+  const canEditOrders = user.role === 'admin' || user.canEditOrders || userCanUseTab(user.editableTabs, 'orders');
+  const canLoadPurchasePending = user.role === 'admin' || userCanUseTab(user.visibleTabs, 'orders') || userCanUseTab(user.visibleTabs, 'pcp');
   const visibleColumns = tableState.visibleColumns
     .map((key) => columnByKey.get(key))
     .filter(Boolean)
@@ -2582,4 +2582,24 @@ function useDebouncedValue<T>(value: T, delayMs: number) {
     return () => window.clearTimeout(timer);
   }, [value, delayMs]);
   return debounced;
+}
+
+function userCanUseTab(permissions: readonly PermissionKey[], tab: TabKey) {
+  return permissions.some((permission) => orderPermissionAccessTab(permission) === tab);
+}
+
+function orderPermissionAccessTab(permission: PermissionKey | string): TabKey | '' {
+  const value = String(permission || '');
+  if (orderLegacyTabKeys().includes(value as TabKey)) return value as TabKey;
+  if (!value.startsWith('screen:')) return '';
+  const screen = value.slice(7);
+  if (screen === 'orders') return 'orders';
+  if (screen === 'dashboard') return 'dashboard';
+  if (screen === 'products') return 'products';
+  if (screen === 'purchasePending' || screen === 'pcp') return 'pcp';
+  return '';
+}
+
+function orderLegacyTabKeys(): TabKey[] {
+  return ['orders', 'dashboard', 'billing', 'loading', 'thirdParty', 'pcp', 'sequencing', 'aps', 'products', 'quality', 'reports', 'ai', 'admin'];
 }

@@ -2989,6 +2989,19 @@ button.mobile-alert-chip {
   overflow: auto;
 }
 
+.permission-actions {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+
+.permission-actions .btn {
+  min-height: 26px;
+  padding: 4px 8px;
+  font-size: 11px;
+}
+
 .permission-check-grid label {
   display: grid;
   grid-template-columns: 16px minmax(0, 1fr);

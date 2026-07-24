@@ -77,7 +77,7 @@ export type TabKey =
   | 'reports'
   | 'ai'
   | 'admin';
-type ScreenKey =
+export type ScreenKey =
   | TabKey
   | 'qualityRnc'
   | 'system'
@@ -90,6 +90,7 @@ type ScreenKey =
   | 'adminApsWorkCenters'
   | 'adminApsOperations'
   | 'purchasePending';
+export type PermissionKey = TabKey | `screen:${ScreenKey}`;
 
 export type CurrentUser = {
   id: string;
@@ -97,8 +98,8 @@ export type CurrentUser = {
   name: string;
   role: UserRole;
   canEditOrders: boolean;
-  visibleTabs: TabKey[];
-  editableTabs: TabKey[];
+  visibleTabs: PermissionKey[];
+  editableTabs: PermissionKey[];
 };
 
 type NotificationItem = {
@@ -159,6 +160,22 @@ const moduleLabels: Record<ScreenMeta['module'], string> = {
   management: 'Gestao',
   registrations: 'Cadastros'
 };
+
+const tabKeys: TabKey[] = [
+  'orders',
+  'dashboard',
+  'billing',
+  'loading',
+  'thirdParty',
+  'pcp',
+  'sequencing',
+  'aps',
+  'products',
+  'quality',
+  'reports',
+  'ai',
+  'admin'
+];
 
 const screens: ScreenMeta[] = [
   {
@@ -1685,11 +1702,29 @@ function ModulePlaceholder({
 }
 
 function canViewScreen(user: CurrentUser, screen: ScreenMeta) {
-  return user.role === 'admin' || user.visibleTabs.includes(screen.accessTab);
+  return user.role === 'admin'
+    || user.visibleTabs.includes(screenPermissionKey(screen.key))
+    || permissionListAllowsTab(user.visibleTabs, screen.accessTab);
 }
 
 function canEditTab(user: CurrentUser, tab: TabKey) {
-  return user.role === 'admin' || user.editableTabs.includes(tab);
+  return user.role === 'admin' || permissionListAllowsTab(user.editableTabs, tab);
+}
+
+function screenPermissionKey(screen: ScreenKey): PermissionKey {
+  return `screen:${screen}` as PermissionKey;
+}
+
+function permissionListAllowsTab(permissions: readonly PermissionKey[], tab: TabKey) {
+  return permissions.some((permission) => permissionAccessTab(permission) === tab);
+}
+
+function permissionAccessTab(permission: PermissionKey | string): TabKey | '' {
+  const value = String(permission || '');
+  if (tabKeys.includes(value as TabKey)) return value as TabKey;
+  if (!value.startsWith('screen:')) return '';
+  const screen = screenByKey.get(value.slice(7) as ScreenKey);
+  return screen?.accessTab || '';
 }
 
 function screenFromLocation(): ScreenKey | '' {
