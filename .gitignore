@@ -13,3 +13,4 @@ runtime/
 *.sqlite-wal
 ERP-Pedidos-Vendas.exe
 Instalador-SOP-MGE-Usuarios-*.zip
+pacotes/
