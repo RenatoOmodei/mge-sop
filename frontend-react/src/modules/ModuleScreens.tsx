@@ -10,6 +10,7 @@ type Column = {
   key: string;
   label: string;
   format?: (value: unknown, row: Row) => string;
+  render?: (row: Row) => ReactNode;
 };
 type PreferenceKey =
   | 'productTableState'
@@ -3617,8 +3618,10 @@ type PurchasePendingState = {
 export function PurchasePendingScreen({ user, realtimeRefreshKey = 0 }: ModuleProps) {
   const editable = canEdit(user, 'pcp');
   const [state, setState] = useState<PurchasePendingState>(() => loadPurchasePendingState(user.id));
+  const [activeOrderOptions, setActiveOrderOptions] = useState<Row[]>([]);
   const [resolvingRow, setResolvingRow] = useState<Row | null>(null);
   const [resolutionNote, setResolutionNote] = useState('');
+  const [linkBusyId, setLinkBusyId] = useState('');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
@@ -3628,10 +3631,14 @@ export function PurchasePendingScreen({ user, realtimeRefreshKey = 0 }: ModulePr
 
   useEffect(() => {
     let ignore = false;
-    api<{ items?: Row[] }>('/api/purchase-pending')
-      .then((payload) => {
+    Promise.all([
+      api<{ items?: Row[] }>('/api/purchase-pending'),
+      api<{ orders?: Row[] }>('/api/orders/active-options').catch(() => ({ orders: [] }))
+    ])
+      .then(([payload, orderPayload]) => {
         if (ignore) return;
         const rows = normalizePurchasePendingRows(payload.items);
+        setActiveOrderOptions(orderPayload.orders || []);
         setState((current) => ({
           ...current,
           rows,
@@ -3741,11 +3748,35 @@ export function PurchasePendingScreen({ user, realtimeRefreshKey = 0 }: ModulePr
     });
   }
 
+  async function updateLinkedSalesOrder(row: Row, salesOrderId: string) {
+    const id = String(row.id || '');
+    if (!id || linkBusyId) return;
+    setSuccess('');
+    setLinkBusyId(id);
+    try {
+      await runAction(setError, async () => {
+        const payload = await api<{ items?: Row[] }>(`/api/purchase-pending/${encodeURIComponent(id)}/sales-order`, {
+          method: 'PATCH',
+          body: { salesOrderId }
+        });
+        applyServerRows(payload.items || []);
+        setSuccess(salesOrderId ? 'Pedido de venda vinculado a compra pendente.' : 'Vinculo removido da compra pendente.');
+      });
+    } finally {
+      setLinkBusyId('');
+    }
+  }
+
   const buyerOptions = useMemo(() => purchasePendingBuyerOptions(state.rows), [state.rows]);
   const filteredRows = useMemo(() => filterPurchasePendingRows(state.rows, state.search, state.buyerFilter), [state.rows, state.search, state.buyerFilter]);
   const buyerDelayRows = useMemo(() => purchasePendingBuyerDelayRows(state.rows), [state.rows]);
   const metrics = purchasePendingMetrics(state.rows);
-  const columns = purchasePendingColumns(state.rows);
+  const columns = purchasePendingColumns(state.rows, {
+    editable,
+    activeOrderOptions,
+    linkBusyId,
+    onLinkChange: updateLinkedSalesOrder
+  });
 
   return (
     <ModuleFrame title="Pedidos de compras pendentes" subtitle="Importacao e consulta inicial de tabela externa de compras." error={error}>
@@ -8094,9 +8125,13 @@ function normalizePurchasePendingRows(value: unknown): Row[] {
     .map((item, index) => {
       const row = asRow(item);
       const itemStatus = String(row.itemStatus || 'pending') === 'resolved' ? 'resolved' : 'pending';
+      const salesOrderNumber = String(row.salesOrderNumber || row.linkedSalesOrderNumber || '').trim();
       return {
         ...row,
         id: String(row.id || `purchase-pending-${index + 1}`),
+        salesOrderId: String(row.salesOrderId || '').trim(),
+        salesOrderNumber,
+        linkedSalesOrderNumber: salesOrderNumber || 'Sem vinculo',
         itemStatus,
         itemStatusLabel: itemStatus === 'resolved' ? 'Baixado' : 'Pendente'
       };
@@ -8182,12 +8217,24 @@ function uniqueColumnLabels(labels: string[]) {
   });
 }
 
-function purchasePendingColumns(rows: Row[]): Column[] {
+function purchasePendingColumns(rows: Row[], linkOptions?: {
+  editable: boolean;
+  activeOrderOptions: Row[];
+  linkBusyId: string;
+  onLinkChange: (row: Row, salesOrderId: string) => void;
+}): Column[] {
   const keys = rows.flatMap((row) => Object.keys(row).filter((key) => !purchasePendingMetaKeys().has(key)));
   const orderedKeys = Array.from(new Set(keys));
+  const linkedOrderColumn: Column = {
+    key: 'linkedSalesOrderNumber',
+    label: 'Pedido venda vinculado',
+    render: (row) => purchasePendingLinkCell(row, linkOptions),
+    format: (value, row) => String(row.salesOrderNumber || value || 'Sem vinculo')
+  };
   return orderedKeys.length
     ? [
       ...orderedKeys.map((key) => ({ key, label: key })),
+      linkedOrderColumn,
       { key: 'itemStatusLabel', label: 'Situacao' },
       { key: 'resolvedBy', label: 'Baixado por' },
       { key: 'resolvedAt', label: 'Baixado em', format: formatDateTime },
@@ -8201,8 +8248,49 @@ function purchasePendingColumns(rows: Row[]): Column[] {
       { key: 'Quantidade', label: 'Quantidade' },
       { key: 'Data entrega prevista', label: 'Data entrega prevista' },
       { key: 'Status', label: 'Status' },
+      linkedOrderColumn,
       { key: 'itemStatusLabel', label: 'Situacao' }
     ];
+}
+
+function purchasePendingLinkCell(row: Row, options?: {
+  editable: boolean;
+  activeOrderOptions: Row[];
+  linkBusyId: string;
+  onLinkChange: (row: Row, salesOrderId: string) => void;
+}) {
+  const currentOrderId = String(row.salesOrderId || '').trim();
+  const currentOrderNumber = String(row.salesOrderNumber || row.linkedSalesOrderNumber || '').trim();
+  const isResolved = String(row.itemStatus || 'pending') === 'resolved';
+  if (!options?.editable || isResolved) {
+    return currentOrderNumber || 'Sem vinculo';
+  }
+
+  const hasCurrentOption = !currentOrderId || options.activeOrderOptions.some((order) => String(order.id || '') === currentOrderId);
+  return (
+    <select
+      className="input purchase-link-select"
+      value={currentOrderId}
+      disabled={options.linkBusyId === String(row.id || '')}
+      onChange={(event) => options.onLinkChange(row, event.target.value)}
+    >
+      <option value="">Sem vinculo</option>
+      {!hasCurrentOption && <option value={currentOrderId}>{currentOrderNumber || 'Pedido vinculado indisponivel'}</option>}
+      {options.activeOrderOptions.map((order) => (
+        <option key={String(order.id || '')} value={String(order.id || '')}>
+          {purchasePendingOrderOptionLabel(order)}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+function purchasePendingOrderOptionLabel(order: Row) {
+  return [
+    String(order.orderNumber || '').trim(),
+    String(order.customer || '').trim(),
+    String(order.sku || '').trim()
+  ].filter(Boolean).join(' | ') || String(order.id || 'Pedido ativo');
 }
 
 function purchasePendingMetrics(rows: Row[]) {
@@ -8339,6 +8427,9 @@ function purchasePendingMetaKeys() {
     'importBatchId',
     'sourceName',
     'rowIndex',
+    'salesOrderId',
+    'salesOrderNumber',
+    'linkedSalesOrderNumber',
     'itemStatus',
     'itemStatusLabel',
     'resolutionNote',
@@ -10080,7 +10171,7 @@ function DataTable({
             >
               {columns.map((column) => (
                 <td key={column.key} title={cellValue(row, column)} data-label={column.label}>
-                  {cellValue(row, column)}
+                  {column.render ? column.render(row) : cellValue(row, column)}
                 </td>
               ))}
               {actions && <td className="row-actions-cell" data-label="Acoes" onClick={onRowClick ? (event) => event.stopPropagation() : undefined}>{actions(row)}</td>}

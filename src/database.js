@@ -544,6 +544,8 @@ class LocalDatabase {
         source_name TEXT NOT NULL DEFAULT '',
         row_index INTEGER NOT NULL DEFAULT 0,
         data_json TEXT NOT NULL DEFAULT '{}',
+        sales_order_id TEXT NOT NULL DEFAULT '',
+        sales_order_number TEXT NOT NULL DEFAULT '',
         item_status TEXT NOT NULL DEFAULT 'pending',
         resolution_note TEXT NOT NULL DEFAULT '',
         resolved_by TEXT NOT NULL DEFAULT '',
@@ -667,6 +669,7 @@ class LocalDatabase {
       CREATE INDEX IF NOT EXISTS idx_purchase_pending_items_status ON purchase_pending_items(item_status);
       CREATE INDEX IF NOT EXISTS idx_purchase_pending_items_imported_at ON purchase_pending_items(imported_at);
       CREATE INDEX IF NOT EXISTS idx_purchase_pending_items_source ON purchase_pending_items(source_name);
+      CREATE INDEX IF NOT EXISTS idx_purchase_pending_items_sales_order ON purchase_pending_items(sales_order_id);
       CREATE INDEX IF NOT EXISTS idx_order_stage_sequences_activity ON order_stage_sequences(activity_key, sequence_number);
       CREATE INDEX IF NOT EXISTS idx_quality_alerts_sku ON quality_alerts(sku);
       CREATE INDEX IF NOT EXISTS idx_quality_alerts_customer ON quality_alerts(customer);
@@ -899,6 +902,8 @@ class LocalDatabase {
         source_name TEXT NOT NULL DEFAULT '',
         row_index INTEGER NOT NULL DEFAULT 0,
         data_json TEXT NOT NULL DEFAULT '{}',
+        sales_order_id TEXT NOT NULL DEFAULT '',
+        sales_order_number TEXT NOT NULL DEFAULT '',
         item_status TEXT NOT NULL DEFAULT 'pending',
         resolution_note TEXT NOT NULL DEFAULT '',
         resolved_by TEXT NOT NULL DEFAULT '',
@@ -909,9 +914,19 @@ class LocalDatabase {
         updated_at TEXT NOT NULL
       );
     `);
+    const existingColumns = new Set(
+      this.db.prepare('PRAGMA table_info(purchase_pending_items)').all().map((column) => column.name)
+    );
+    if (!existingColumns.has('sales_order_id')) {
+      this.db.exec("ALTER TABLE purchase_pending_items ADD COLUMN sales_order_id TEXT NOT NULL DEFAULT ''");
+    }
+    if (!existingColumns.has('sales_order_number')) {
+      this.db.exec("ALTER TABLE purchase_pending_items ADD COLUMN sales_order_number TEXT NOT NULL DEFAULT ''");
+    }
     this.db.exec('CREATE INDEX IF NOT EXISTS idx_purchase_pending_items_status ON purchase_pending_items(item_status);');
     this.db.exec('CREATE INDEX IF NOT EXISTS idx_purchase_pending_items_imported_at ON purchase_pending_items(imported_at);');
     this.db.exec('CREATE INDEX IF NOT EXISTS idx_purchase_pending_items_source ON purchase_pending_items(source_name);');
+    this.db.exec('CREATE INDEX IF NOT EXISTS idx_purchase_pending_items_sales_order ON purchase_pending_items(sales_order_id);');
   }
 
   ensureStageSequenceColumns() {
@@ -3143,7 +3158,7 @@ class LocalDatabase {
 
     return this.db
       .prepare(`
-        SELECT id, import_batch_id, source_name, row_index, data_json, item_status,
+        SELECT id, import_batch_id, source_name, row_index, data_json, sales_order_id, sales_order_number, item_status,
           resolution_note, resolved_by, resolved_at, imported_by, imported_at, created_at, updated_at
         FROM purchase_pending_items
         ${where}
@@ -3156,7 +3171,7 @@ class LocalDatabase {
   findPurchasePendingItemById(id) {
     const row = this.db
       .prepare(`
-        SELECT id, import_batch_id, source_name, row_index, data_json, item_status,
+        SELECT id, import_batch_id, source_name, row_index, data_json, sales_order_id, sales_order_number, item_status,
           resolution_note, resolved_by, resolved_at, imported_by, imported_at, created_at, updated_at
         FROM purchase_pending_items
         WHERE id = ?
@@ -3179,10 +3194,10 @@ class LocalDatabase {
 
       const insert = this.db.prepare(`
         INSERT INTO purchase_pending_items (
-          id, import_batch_id, source_name, row_index, data_json, item_status,
+          id, import_batch_id, source_name, row_index, data_json, sales_order_id, sales_order_number, item_status,
           resolution_note, resolved_by, resolved_at, imported_by, imported_at, created_at, updated_at
         )
-        VALUES (?, ?, ?, ?, ?, 'pending', '', '', '', ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, '', '', 'pending', '', '', '', ?, ?, ?, ?)
       `);
 
       cleanRows.forEach((row, index) => {
@@ -3228,6 +3243,39 @@ class LocalDatabase {
         WHERE id = ?
       `)
       .run(cleanNote, String(actor || '').trim(), now, now, String(id || ''));
+
+    return this.findPurchasePendingItemById(id);
+  }
+
+  updatePurchasePendingSalesOrderLink(id, salesOrderId = '') {
+    const item = this.findPurchasePendingItemById(id);
+    if (!item) {
+      return null;
+    }
+
+    const cleanOrderId = String(salesOrderId || '').trim();
+    let orderNumber = '';
+    if (cleanOrderId) {
+      const order = this.findOrderById(cleanOrderId);
+      if (!order) {
+        throw new Error('Pedido de venda vinculado nao encontrado.');
+      }
+      if (!isActiveOrderForLink(order)) {
+        throw new Error('Vincule apenas pedidos de venda ativos.');
+      }
+      orderNumber = order.orderNumber || '';
+    }
+
+    const now = new Date().toISOString();
+    this.db
+      .prepare(`
+        UPDATE purchase_pending_items
+        SET sales_order_id = ?,
+          sales_order_number = ?,
+          updated_at = ?
+        WHERE id = ?
+      `)
+      .run(cleanOrderId, orderNumber, now, String(id || ''));
 
     return this.findPurchasePendingItemById(id);
   }
@@ -4317,6 +4365,9 @@ function mapPurchasePendingItem(row) {
     importBatchId: row.import_batch_id || '',
     sourceName: row.source_name || '',
     rowIndex: Number(row.row_index) || 0,
+    salesOrderId: row.sales_order_id || '',
+    salesOrderNumber: row.sales_order_number || '',
+    linkedSalesOrderNumber: row.sales_order_number || '',
     itemStatus,
     itemStatusLabel: itemStatus === 'resolved' ? 'Baixado' : 'Pendente',
     resolutionNote: row.resolution_note || '',
@@ -4599,6 +4650,14 @@ function orderScopeClause(scope) {
   }
 
   return '';
+}
+
+function isActiveOrderForLink(order) {
+  if (!order) return false;
+  const status = normalizeText(order.status || '');
+  return !status.includes('cancel')
+    && !status.includes('conclu')
+    && String(order.billingStage || '') !== 'loaded';
 }
 
 function appendDueWithinClause(filters, clauses, params) {
@@ -5106,6 +5165,9 @@ function purchasePendingMetaKeys() {
     'importBatchId',
     'sourceName',
     'rowIndex',
+    'salesOrderId',
+    'salesOrderNumber',
+    'linkedSalesOrderNumber',
     'itemStatus',
     'itemStatusLabel',
     'resolutionNote',

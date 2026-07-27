@@ -1206,6 +1206,25 @@ async function handleApi(context) {
     return;
   }
 
+  if (req.method === 'GET' && pathname === '/api/orders/active-options') {
+    if (!canViewAnyTab(session, ['orders', 'pcp'])) {
+      sendJson(res, 403, { error: 'Acesso negado aos pedidos ativos.' });
+      return;
+    }
+
+    const orders = db
+      .listOrders({ scope: 'active', sort: 'orderNumber', direction: 'asc' })
+      .map((order) => ({
+        id: order.id,
+        orderNumber: order.orderNumber,
+        customer: order.customer,
+        sku: order.sku,
+        status: order.status
+      }));
+    sendJson(res, 200, { orders });
+    return;
+  }
+
   if (req.method === 'GET' && pathname === '/api/purchase-pending') {
     if (!canViewTab(session, 'pcp') && !canViewTab(session, 'orders')) {
       sendJson(res, 403, { error: 'Acesso negado aos pedidos de compras pendentes.' });
@@ -1242,6 +1261,42 @@ async function handleApi(context) {
     });
     broadcastRealtime(server, ['pcp', 'orders', 'reports']);
     sendJson(res, 200, { items });
+    return;
+  }
+
+  const purchasePendingLinkMatch = pathname.match(/^\/api\/purchase-pending\/([^/]+)\/sales-order$/);
+  if (purchasePendingLinkMatch && req.method === 'PATCH') {
+    if (!canEditTab(session, 'pcp')) {
+      sendJson(res, 403, { error: 'Usuario sem permissao para vincular pedidos de venda.' });
+      return;
+    }
+
+    const id = decodeURIComponent(purchasePendingLinkMatch[1]);
+    const body = await readJsonBody(req);
+    const actor = session.user.name || session.user.username;
+    let item;
+
+    try {
+      item = db.updatePurchasePendingSalesOrderLink(id, body.salesOrderId || '');
+    } catch (error) {
+      sendJson(res, 400, { error: error.message });
+      return;
+    }
+
+    if (!item) {
+      sendJson(res, 404, { error: 'Pedido de compra pendente nao encontrado.' });
+      return;
+    }
+
+    db.logActivity({
+      actor,
+      action: item.salesOrderId ? 'Pedido de compra pendente vinculado' : 'Vinculo de pedido de compra pendente removido',
+      entityType: 'Supply',
+      entityLabel: purchasePendingItemLabel(item),
+      details: item.salesOrderNumber ? `Pedido de venda ${item.salesOrderNumber}` : 'Sem pedido de venda vinculado'
+    });
+    broadcastRealtime(server, ['pcp', 'orders', 'reports']);
+    sendJson(res, 200, { item, items: db.listPurchasePendingItems() });
     return;
   }
 

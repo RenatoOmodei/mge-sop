@@ -115,6 +115,8 @@ type QualityAcknowledgement = {
 
 type PurchasePendingItem = Record<string, unknown> & {
   id: string;
+  salesOrderId?: string;
+  salesOrderNumber?: string;
   itemStatus?: string;
   itemStatusLabel?: string;
 };
@@ -2134,16 +2136,11 @@ function qualityMatchesForOrder(order: SalesOrder, alerts: QualityAlert[], ackno
 }
 
 function decorateOrderWithPurchasePending(order: SalesOrder, purchasePendingByOrder: Map<string, PurchasePendingMatch>): SalesOrder {
-  const matches = new Map<string, PurchasePendingItem>();
-  for (const key of orderReferenceTokens(order.orderNumber)) {
-    const match = purchasePendingByOrder.get(key);
-    if (!match) continue;
-    for (const item of match.items) {
-      matches.set(String(item.id), item);
-    }
+  if (!isActiveOrderForPurchasePending(order)) {
+    return { ...order, purchasePendingCount: 0, purchasePendingSummary: '' };
   }
 
-  const items = Array.from(matches.values());
+  const items = purchasePendingByOrder.get(order.id)?.items || [];
   return {
     ...order,
     purchasePendingCount: items.length,
@@ -2155,14 +2152,11 @@ function buildPurchasePendingByOrder(items: PurchasePendingItem[]) {
   const map = new Map<string, PurchasePendingItem[]>();
   for (const item of items) {
     if (String(item.itemStatus || 'pending') === 'resolved') continue;
-    const observation = purchasePendingInternalObservation(item);
-    if (!observation) continue;
-
-    for (const token of orderReferenceTokens(observation)) {
-      const rows = map.get(token) || [];
-      rows.push(item);
-      map.set(token, rows);
-    }
+    const salesOrderId = String(item.salesOrderId || '').trim();
+    if (!salesOrderId) continue;
+    const rows = map.get(salesOrderId) || [];
+    rows.push(item);
+    map.set(salesOrderId, rows);
   }
 
   const summaryMap = new Map<string, PurchasePendingMatch>();
@@ -2175,57 +2169,6 @@ function buildPurchasePendingByOrder(items: PurchasePendingItem[]) {
     });
   }
   return summaryMap;
-}
-
-function purchasePendingInternalObservation(item: PurchasePendingItem) {
-  const key = purchasePendingInternalObservationKey(item);
-  return key ? String(item[key] || '').trim() : '';
-}
-
-function purchasePendingInternalObservationKey(item: PurchasePendingItem) {
-  const keys = Object.keys(item).filter((key) => !purchasePendingMetaKeys().has(key));
-  const exactNames = new Set([
-    'observacao do interna',
-    'observacao interna',
-    'observacao interna do pedido',
-    'obs interna',
-    'obs. interna'
-  ]);
-  return keys.find((key) => exactNames.has(normalizeComparableText(key)))
-    || keys.find((key) => {
-      const normalized = normalizeComparableText(key);
-      return normalized.includes('observacao') && normalized.includes('interna');
-    })
-    || keys.find((key) => {
-      const normalized = normalizeComparableText(key);
-      return normalized.includes('obs') && normalized.includes('interna');
-    })
-    || '';
-}
-
-function orderReferenceTokens(value: unknown) {
-  const normalized = normalizeComparableText(String(value || ''));
-  const parts = normalized.split(' ').filter((part) => part.length >= 2);
-  const tokens = new Set(parts);
-  for (let index = 0; index < parts.length - 1; index += 1) {
-    const combined = `${parts[index]}${parts[index + 1]}`;
-    if (combined.length >= 2) tokens.add(combined);
-  }
-
-  const compact = parts.join('');
-  if (compact.length >= 2 && compact.length <= 24) tokens.add(compact);
-  const digits = compact.replace(/\D+/g, '');
-  if (digits.length >= 2) tokens.add(digits);
-  for (const part of parts) {
-    const numericPart = part.replace(/\D+/g, '');
-    if (numericPart.length < 3) continue;
-    for (let start = 0; start < numericPart.length; start += 1) {
-      for (let end = start + 3; end <= numericPart.length; end += 1) {
-        tokens.add(numericPart.slice(start, end));
-      }
-    }
-  }
-  return Array.from(tokens);
 }
 
 function normalizeComparableText(value: string) {
@@ -2469,6 +2412,11 @@ function orderRowClass(order: SalesOrder, productionSet: Set<string>) {
 
 function isOrderCompleted(order: SalesOrder) {
   return normalizeText(order.status).includes('conclu') || order.billingStage === 'loaded';
+}
+
+function isActiveOrderForPurchasePending(order: SalesOrder) {
+  const status = normalizeText(order.status);
+  return !isOrderCompleted(order) && !status.includes('cancel');
 }
 
 function isOrderOverdue(order: SalesOrder) {

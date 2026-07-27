@@ -219,6 +219,8 @@ CREATE TABLE IF NOT EXISTS purchase_pending_items (
   source_name text NOT NULL DEFAULT '',
   row_index integer NOT NULL DEFAULT 0,
   data_json text NOT NULL DEFAULT '{}',
+  sales_order_id text NOT NULL DEFAULT '',
+  sales_order_number text NOT NULL DEFAULT '',
   item_status text NOT NULL DEFAULT 'pending',
   resolution_note text NOT NULL DEFAULT '',
   resolved_by text NOT NULL DEFAULT '',
@@ -344,6 +346,12 @@ ALTER TABLE quality_alerts
 ALTER TABLE quality_alerts
   ADD COLUMN IF NOT EXISTS resolved_by text NOT NULL DEFAULT '';
 
+ALTER TABLE purchase_pending_items
+  ADD COLUMN IF NOT EXISTS sales_order_id text NOT NULL DEFAULT '';
+
+ALTER TABLE purchase_pending_items
+  ADD COLUMN IF NOT EXISTS sales_order_number text NOT NULL DEFAULT '';
+
 ALTER TABLE pcp_pending_issues
   ADD COLUMN IF NOT EXISTS motive text NOT NULL DEFAULT '';
 
@@ -424,6 +432,7 @@ CREATE INDEX IF NOT EXISTS idx_pcp_pending_motives_reason ON pcp_pending_motives
 CREATE INDEX IF NOT EXISTS idx_purchase_pending_items_status ON purchase_pending_items(item_status);
 CREATE INDEX IF NOT EXISTS idx_purchase_pending_items_imported_at ON purchase_pending_items(imported_at);
 CREATE INDEX IF NOT EXISTS idx_purchase_pending_items_source ON purchase_pending_items(source_name);
+CREATE INDEX IF NOT EXISTS idx_purchase_pending_items_sales_order ON purchase_pending_items(sales_order_id);
 CREATE INDEX IF NOT EXISTS idx_order_stage_sequences_activity ON order_stage_sequences(activity_key, sequence_number);
 CREATE INDEX IF NOT EXISTS idx_quality_alerts_sku ON quality_alerts(sku);
 CREATE INDEX IF NOT EXISTS idx_quality_alerts_customer ON quality_alerts(customer);

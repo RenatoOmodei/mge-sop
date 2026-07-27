@@ -2657,6 +2657,14 @@ button.mobile-alert-chip {
   font-size: 11px;
 }
 
+.purchase-link-select {
+  min-width: 220px;
+  max-width: 280px;
+  min-height: 28px;
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
 .loading-toolbar {
   align-items: end;
 }
