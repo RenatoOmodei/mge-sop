@@ -3613,6 +3613,8 @@ type PurchasePendingState = {
   importedAt: string;
   search: string;
   buyerFilter: string;
+  sortField: string;
+  sortDirection: 'asc' | 'desc';
 };
 
 export function PurchasePendingScreen({ user, realtimeRefreshKey = 0 }: ModuleProps) {
@@ -3654,10 +3656,15 @@ export function PurchasePendingScreen({ user, realtimeRefreshKey = 0 }: ModulePr
     };
   }, [realtimeRefreshKey]);
 
-  function persistUiState(patch: Partial<Pick<PurchasePendingState, 'search' | 'buyerFilter'>>) {
+  function persistUiState(patch: Partial<Pick<PurchasePendingState, 'search' | 'buyerFilter' | 'sortField' | 'sortDirection'>>) {
     setState((current) => {
       const next = { ...current, ...patch };
-      writeLocalPreference(purchasePendingStorageKey(user.id), { search: next.search, buyerFilter: next.buyerFilter });
+      writeLocalPreference(purchasePendingStorageKey(user.id), {
+        search: next.search,
+        buyerFilter: next.buyerFilter,
+        sortField: next.sortField,
+        sortDirection: next.sortDirection
+      });
       return next;
     });
   }
@@ -3704,6 +3711,13 @@ export function PurchasePendingScreen({ user, realtimeRefreshKey = 0 }: ModulePr
     persistUiState({ buyerFilter: value });
   }
 
+  function updateSort(field: string) {
+    persistUiState({
+      sortField: field,
+      sortDirection: state.sortField === field && state.sortDirection === 'asc' ? 'desc' : 'asc'
+    });
+  }
+
   async function clearRows() {
     if (!window.confirm('Limpar a tabela importada de pedidos de compras pendentes?')) return;
     setSuccess('');
@@ -3718,7 +3732,7 @@ export function PurchasePendingScreen({ user, realtimeRefreshKey = 0 }: ModulePr
     const columns = purchasePendingColumns(state.rows);
     const csvRows = [
       columns.map((column) => column.label),
-      ...filteredRows.map((row) => columns.map((column) => cellValue(row, column)))
+      ...visibleRows.map((row) => columns.map((column) => cellValue(row, column)))
     ];
     const csv = csvRows.map((row) => row.map((value) => escapeCsvCell(String(value || ''))).join(';')).join('\r\n');
     const dataUrl = `data:text/csv;charset=utf-8,${encodeURIComponent(`\uFEFF${csv}`)}`;
@@ -3777,6 +3791,10 @@ export function PurchasePendingScreen({ user, realtimeRefreshKey = 0 }: ModulePr
     linkBusyId,
     onLinkChange: updateLinkedSalesOrder
   });
+  const visibleRows = useMemo(
+    () => sortPurchasePendingRows(filteredRows, columns, state.sortField, state.sortDirection),
+    [filteredRows, columns, state.sortField, state.sortDirection]
+  );
 
   return (
     <ModuleFrame title="Pedidos de compras pendentes" subtitle="Importacao e consulta inicial de tabela externa de compras." error={error}>
@@ -3862,11 +3880,14 @@ export function PurchasePendingScreen({ user, realtimeRefreshKey = 0 }: ModulePr
       <section className="module-panel">
         <div className="panel-title">
           <h3>Consulta de compras pendentes</h3>
-          <span>{filteredRows.length} registro(s)</span>
+          <span>{visibleRows.length} registro(s)</span>
         </div>
         <DataTable
-          rows={filteredRows}
+          rows={visibleRows}
           columns={columns}
+          sortField={state.sortField}
+          sortDirection={state.sortDirection}
+          onSort={updateSort}
           rowClass={(row) => purchasePendingRowClass(row)}
           actions={editable ? (row) => (
             String(row.itemStatus || 'pending') === 'resolved'
@@ -8111,7 +8132,9 @@ function loadPurchasePendingState(userId: string): PurchasePendingState {
     sourceName: '',
     importedAt: '',
     search: String(rawState.search || ''),
-    buyerFilter: String(rawState.buyerFilter || '')
+    buyerFilter: String(rawState.buyerFilter || ''),
+    sortField: String(rawState.sortField || ''),
+    sortDirection: rawState.sortDirection === 'desc' ? 'desc' : 'asc'
   };
 }
 
@@ -8314,6 +8337,23 @@ function filterPurchasePendingRows(rows: Row[], search: string, buyerFilter: str
     ? rows.filter((row) => String(row[buyerKey] || '').trim() === buyerFilter)
     : rows;
   return filterRows(filteredByBuyer, search);
+}
+
+function sortPurchasePendingRows(rows: Row[], columns: Column[], field: string, direction: 'asc' | 'desc') {
+  if (!field) return rows;
+  const column = columns.find((item) => item.key === field) || { key: field, label: field };
+  return [...rows].sort((left, right) => {
+    const result = compareLoose(purchasePendingSortValue(left, column), purchasePendingSortValue(right, column));
+    if (result !== 0) return direction === 'asc' ? result : -result;
+    return compareLoose(left.id, right.id);
+  });
+}
+
+function purchasePendingSortValue(row: Row, column: Column) {
+  const displayValue = column.format ? column.format(row[column.key], row) : row[column.key];
+  const dateValue = normalizePurchasePendingDate(displayValue);
+  if (dateValue) return dateValue;
+  return displayValue;
 }
 
 function purchasePendingBuyerOptions(rows: Row[]) {
@@ -10145,20 +10185,40 @@ function DataTable({
   columns,
   actions,
   rowClass,
-  onRowClick
+  onRowClick,
+  sortField = '',
+  sortDirection = 'asc',
+  onSort
 }: {
   rows: Row[];
   columns: Column[];
   actions?: (row: Row) => ReactNode;
   rowClass?: (row: Row) => string;
   onRowClick?: (row: Row) => void;
+  sortField?: string;
+  sortDirection?: 'asc' | 'desc';
+  onSort?: (field: string) => void;
 }) {
   return (
     <div className="generic-table-wrap">
       <table className="generic-table">
         <thead>
           <tr>
-            {columns.map((column) => <th key={column.key}>{column.label}</th>)}
+            {columns.map((column) => (
+              <th key={column.key}>
+                {onSort ? (
+                  <button
+                    className={`table-sort-button ${sortField === column.key ? 'active' : ''}`}
+                    data-direction={sortField === column.key ? sortDirection : ''}
+                    type="button"
+                    title="Clique para classificar"
+                    onClick={() => onSort(column.key)}
+                  >
+                    {column.label}
+                  </button>
+                ) : column.label}
+              </th>
+            ))}
             {actions && <th>Acoes</th>}
           </tr>
         </thead>
