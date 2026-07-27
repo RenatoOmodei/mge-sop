@@ -3614,6 +3614,8 @@ type PurchasePendingState = {
   search: string;
   buyerFilter: string;
   statusFilter: string;
+  linkedOrderFilter: string;
+  delayFilter: string;
   sortField: string;
   sortDirection: 'asc' | 'desc';
 };
@@ -3658,13 +3660,15 @@ export function PurchasePendingScreen({ user, realtimeRefreshKey = 0 }: ModulePr
     };
   }, [realtimeRefreshKey]);
 
-  function persistUiState(patch: Partial<Pick<PurchasePendingState, 'search' | 'buyerFilter' | 'statusFilter' | 'sortField' | 'sortDirection'>>) {
+  function persistUiState(patch: Partial<Pick<PurchasePendingState, 'search' | 'buyerFilter' | 'statusFilter' | 'linkedOrderFilter' | 'delayFilter' | 'sortField' | 'sortDirection'>>) {
     setState((current) => {
       const next = { ...current, ...patch };
       writeLocalPreference(purchasePendingStorageKey(user.id), {
         search: next.search,
         buyerFilter: next.buyerFilter,
         statusFilter: next.statusFilter,
+        linkedOrderFilter: next.linkedOrderFilter,
+        delayFilter: next.delayFilter,
         sortField: next.sortField,
         sortDirection: next.sortDirection
       });
@@ -3716,6 +3720,14 @@ export function PurchasePendingScreen({ user, realtimeRefreshKey = 0 }: ModulePr
 
   function updateStatusFilter(value: string) {
     persistUiState({ statusFilter: value });
+  }
+
+  function updateLinkedOrderFilter(value: string) {
+    persistUiState({ linkedOrderFilter: value });
+  }
+
+  function updateDelayFilter(value: string) {
+    persistUiState({ delayFilter: value });
   }
 
   function updateSort(field: string) {
@@ -3814,9 +3826,10 @@ export function PurchasePendingScreen({ user, realtimeRefreshKey = 0 }: ModulePr
   }
 
   const buyerOptions = useMemo(() => purchasePendingBuyerOptions(state.rows), [state.rows]);
+  const linkedOrderOptions = useMemo(() => purchasePendingLinkedOrderOptions(state.rows), [state.rows]);
   const filteredRows = useMemo(
-    () => filterPurchasePendingRows(state.rows, state.search, state.buyerFilter, state.statusFilter),
-    [state.rows, state.search, state.buyerFilter, state.statusFilter]
+    () => filterPurchasePendingRows(state.rows, state.search, state.buyerFilter, state.statusFilter, state.linkedOrderFilter, state.delayFilter),
+    [state.rows, state.search, state.buyerFilter, state.statusFilter, state.linkedOrderFilter, state.delayFilter]
   );
   const buyerDelayRows = useMemo(() => purchasePendingBuyerDelayRows(state.rows), [state.rows]);
   const metrics = purchasePendingMetrics(state.rows);
@@ -3859,6 +3872,20 @@ export function PurchasePendingScreen({ user, realtimeRefreshKey = 0 }: ModulePr
               <option value="all">Todos</option>
               <option value="active">Ativos</option>
               <option value="resolved">Baixados</option>
+            </select>
+          </label>
+          <label className="field module-search compact-field">
+            <span>Pedido vinculado</span>
+            <select className="input" value={state.linkedOrderFilter} onChange={(event) => updateLinkedOrderFilter(event.target.value)}>
+              <option value="">Todos</option>
+              {linkedOrderOptions.map((orderNumber) => <option key={orderNumber} value={orderNumber}>{orderNumber}</option>)}
+            </select>
+          </label>
+          <label className="field module-search compact-field">
+            <span>Atraso</span>
+            <select className="input" value={state.delayFilter} onChange={(event) => updateDelayFilter(event.target.value)}>
+              <option value="all">Todos</option>
+              <option value="overdue">Somente atrasados</option>
             </select>
           </label>
           {editable && (
@@ -8204,6 +8231,8 @@ function loadPurchasePendingState(userId: string): PurchasePendingState {
     search: String(rawState.search || ''),
     buyerFilter: String(rawState.buyerFilter || ''),
     statusFilter: ['active', 'resolved', 'all'].includes(String(rawState.statusFilter || '')) ? String(rawState.statusFilter) : 'all',
+    linkedOrderFilter: String(rawState.linkedOrderFilter || ''),
+    delayFilter: rawState.delayFilter === 'overdue' ? 'overdue' : 'all',
     sortField: String(rawState.sortField || ''),
     sortDirection: rawState.sortDirection === 'desc' ? 'desc' : 'asc'
   };
@@ -8407,7 +8436,7 @@ function purchasePendingMetrics(rows: Row[]) {
   };
 }
 
-function filterPurchasePendingRows(rows: Row[], search: string, buyerFilter: string, statusFilter = 'all') {
+function filterPurchasePendingRows(rows: Row[], search: string, buyerFilter: string, statusFilter = 'all', linkedOrderFilter = '', delayFilter = 'all') {
   const buyerKey = purchasePendingBuyerKey(rows);
   const filteredByBuyer = buyerFilter && buyerKey
     ? rows.filter((row) => String(row[buyerKey] || '').trim() === buyerFilter)
@@ -8418,7 +8447,13 @@ function filterPurchasePendingRows(rows: Row[], search: string, buyerFilter: str
     if (statusFilter === 'resolved') return resolved;
     return true;
   });
-  return filterRows(filteredByStatus, search);
+  const filteredByOrder = linkedOrderFilter
+    ? filteredByStatus.filter((row) => purchasePendingLinkedOrderNumber(row) === linkedOrderFilter)
+    : filteredByStatus;
+  const filteredByDelay = delayFilter === 'overdue'
+    ? filteredByOrder.filter((row) => purchasePendingIsOverdue(row))
+    : filteredByOrder;
+  return filterRows(filteredByDelay, search);
 }
 
 function sortPurchasePendingRows(rows: Row[], columns: Column[], field: string, direction: 'asc' | 'desc') {
@@ -8446,6 +8481,19 @@ function purchasePendingBuyerOptions(rows: Row[]) {
       .map((row) => String(row[buyerKey] || '').trim())
       .filter(Boolean)
   )).sort((left, right) => left.localeCompare(right, 'pt-BR'));
+}
+
+function purchasePendingLinkedOrderOptions(rows: Row[]) {
+  return Array.from(new Set(
+    rows
+      .map((row) => purchasePendingLinkedOrderNumber(row))
+      .filter(Boolean)
+  )).sort((left, right) => left.localeCompare(right, 'pt-BR', { numeric: true }));
+}
+
+function purchasePendingLinkedOrderNumber(row: Row) {
+  const value = String(row.salesOrderNumber || row.linkedSalesOrderNumber || '').trim();
+  return normalizeText(value) === 'sem vinculo' ? '' : value;
 }
 
 function purchasePendingBuyerDelayRows(rows: Row[]): Row[] {
