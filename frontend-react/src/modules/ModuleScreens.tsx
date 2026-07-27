@@ -8283,28 +8283,58 @@ function purchasePendingLinkCell(row: Row, options?: {
   onLinkChange: (row: Row, salesOrderId: string) => void;
 }) {
   const currentOrderId = String(row.salesOrderId || '').trim();
-  const currentOrderNumber = String(row.salesOrderNumber || row.linkedSalesOrderNumber || '').trim();
+  const rawCurrentOrderNumber = String(row.salesOrderNumber || row.linkedSalesOrderNumber || '').trim();
+  const currentOrderNumber = normalizeText(rawCurrentOrderNumber) === 'sem vinculo' ? '' : rawCurrentOrderNumber;
   const isResolved = String(row.itemStatus || 'pending') === 'resolved';
+  const suggestedOrders = options ? purchasePendingSuggestedSalesOrders(row, options.activeOrderOptions) : [];
   if (!options?.editable || isResolved) {
-    return currentOrderNumber || 'Sem vinculo';
+    return (
+      <div className="purchase-link-cell">
+        {currentOrderNumber
+          ? <span className="purchase-link-chip active">{currentOrderNumber}</span>
+          : <span className="muted-text">Sem vinculo</span>}
+      </div>
+    );
   }
 
   const hasCurrentOption = !currentOrderId || options.activeOrderOptions.some((order) => String(order.id || '') === currentOrderId);
   return (
-    <select
-      className="input purchase-link-select"
-      value={currentOrderId}
-      disabled={options.linkBusyId === String(row.id || '')}
-      onChange={(event) => options.onLinkChange(row, event.target.value)}
-    >
-      <option value="">Sem vinculo</option>
-      {!hasCurrentOption && <option value={currentOrderId}>{currentOrderNumber || 'Pedido vinculado indisponivel'}</option>}
-      {options.activeOrderOptions.map((order) => (
-        <option key={String(order.id || '')} value={String(order.id || '')}>
-          {purchasePendingOrderOptionLabel(order)}
-        </option>
-      ))}
-    </select>
+    <div className="purchase-link-cell">
+      {!!suggestedOrders.length && (
+        <div className="purchase-link-chip-list" aria-label="Pedidos sugeridos pela observacao interna">
+          {suggestedOrders.map((order) => {
+            const orderId = String(order.id || '');
+            const selected = currentOrderId === orderId;
+            return (
+              <button
+                key={orderId}
+                className={`purchase-link-chip ${selected ? 'active' : ''}`}
+                type="button"
+                disabled={selected || options.linkBusyId === String(row.id || '')}
+                title={purchasePendingOrderOptionLabel(order)}
+                onClick={() => options.onLinkChange(row, orderId)}
+              >
+                {String(order.orderNumber || orderId)}
+              </button>
+            );
+          })}
+        </div>
+      )}
+      <select
+        className="input purchase-link-select"
+        value={currentOrderId}
+        disabled={options.linkBusyId === String(row.id || '')}
+        onChange={(event) => options.onLinkChange(row, event.target.value)}
+      >
+        <option value="">Sem vinculo</option>
+        {!hasCurrentOption && <option value={currentOrderId}>{currentOrderNumber || 'Pedido vinculado indisponivel'}</option>}
+        {options.activeOrderOptions.map((order) => (
+          <option key={String(order.id || '')} value={String(order.id || '')}>
+            {purchasePendingOrderOptionLabel(order)}
+          </option>
+        ))}
+      </select>
+    </div>
   );
 }
 
@@ -8314,6 +8344,34 @@ function purchasePendingOrderOptionLabel(order: Row) {
     String(order.customer || '').trim(),
     String(order.sku || '').trim()
   ].filter(Boolean).join(' | ') || String(order.id || 'Pedido ativo');
+}
+
+function purchasePendingSuggestedSalesOrders(row: Row, orders: Row[]) {
+  const observation = purchasePendingInternalObservation(row);
+  if (!observation) return [];
+  return orders
+    .filter((order) => purchasePendingObservationHasOrder(observation, String(order.orderNumber || '')))
+    .sort((left, right) => compareLoose(left.orderNumber, right.orderNumber));
+}
+
+function purchasePendingInternalObservation(row: Row) {
+  const keys = Object.keys(row).filter((key) => !purchasePendingMetaKeys().has(key));
+  const key = keys.find((item) => {
+    const normalized = normalizeText(item).replace(/\s+/g, ' ').trim();
+    return normalized.includes('observ') && normalized.includes('interna');
+  }) || '';
+  return key ? String(row[key] || '').trim() : '';
+}
+
+function purchasePendingObservationHasOrder(observation: string, orderNumber: string) {
+  const cleanOrder = normalizePurchasePendingOrderReference(orderNumber);
+  if (!cleanOrder) return false;
+  const cleanObservation = ` ${normalizePurchasePendingOrderReference(observation)} `;
+  return cleanObservation.includes(` ${cleanOrder} `);
+}
+
+function normalizePurchasePendingOrderReference(value: unknown) {
+  return normalizeText(value).replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
 function purchasePendingMetrics(rows: Row[]) {

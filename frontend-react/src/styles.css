@@ -2665,6 +2665,53 @@ button.mobile-alert-chip {
   font-size: 12px;
 }
 
+.purchase-link-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 230px;
+}
+
+.purchase-link-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.purchase-link-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 24px;
+  padding: 3px 9px;
+  border: 1px solid #8bb8e8;
+  border-radius: 999px;
+  background: #eff6ff;
+  color: #174a7c;
+  font-size: 11px;
+  font-weight: 900;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.purchase-link-chip:hover:not(:disabled) {
+  background: #dbeafe;
+  border-color: #2563eb;
+}
+
+.purchase-link-chip.active {
+  background: #174a7c;
+  border-color: #174a7c;
+  color: #ffffff;
+  cursor: default;
+}
+
+.purchase-link-chip:disabled:not(.active) {
+  opacity: 0.65;
+  cursor: progress;
+}
+
 .loading-toolbar {
   align-items: end;
 }
