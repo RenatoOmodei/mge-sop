@@ -2134,10 +2134,6 @@ function qualityMatchesForOrder(order: SalesOrder, alerts: QualityAlert[], ackno
 }
 
 function decorateOrderWithPurchasePending(order: SalesOrder, purchasePendingByOrder: Map<string, PurchasePendingMatch>): SalesOrder {
-  if (!isExactProductionStatus(order.status)) {
-    return { ...order, purchasePendingCount: 0, purchasePendingSummary: '' };
-  }
-
   const matches = new Map<string, PurchasePendingItem>();
   for (const key of orderReferenceTokens(order.orderNumber)) {
     const match = purchasePendingByOrder.get(key);
@@ -2220,6 +2216,15 @@ function orderReferenceTokens(value: unknown) {
   if (compact.length >= 2 && compact.length <= 24) tokens.add(compact);
   const digits = compact.replace(/\D+/g, '');
   if (digits.length >= 2) tokens.add(digits);
+  for (const part of parts) {
+    const numericPart = part.replace(/\D+/g, '');
+    if (numericPart.length < 3) continue;
+    for (let start = 0; start < numericPart.length; start += 1) {
+      for (let end = start + 3; end <= numericPart.length; end += 1) {
+        tokens.add(numericPart.slice(start, end));
+      }
+    }
+  }
   return Array.from(tokens);
 }
 
@@ -2464,10 +2469,6 @@ function orderRowClass(order: SalesOrder, productionSet: Set<string>) {
 
 function isOrderCompleted(order: SalesOrder) {
   return normalizeText(order.status).includes('conclu') || order.billingStage === 'loaded';
-}
-
-function isExactProductionStatus(status: string) {
-  return normalizeText(status).replace(/\s+/g, ' ').trim() === 'em producao';
 }
 
 function isOrderOverdue(order: SalesOrder) {
