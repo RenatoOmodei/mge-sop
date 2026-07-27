@@ -218,10 +218,14 @@ CREATE TABLE IF NOT EXISTS purchase_pending_items (
   import_batch_id text NOT NULL DEFAULT '',
   source_name text NOT NULL DEFAULT '',
   row_index integer NOT NULL DEFAULT 0,
+  item_key text NOT NULL DEFAULT '',
   data_json text NOT NULL DEFAULT '{}',
   sales_order_id text NOT NULL DEFAULT '',
   sales_order_number text NOT NULL DEFAULT '',
   item_status text NOT NULL DEFAULT 'pending',
+  is_viewed integer NOT NULL DEFAULT 1,
+  viewed_by text NOT NULL DEFAULT '',
+  viewed_at text NOT NULL DEFAULT '',
   resolution_note text NOT NULL DEFAULT '',
   resolved_by text NOT NULL DEFAULT '',
   resolved_at text NOT NULL DEFAULT '',
@@ -352,6 +356,18 @@ ALTER TABLE purchase_pending_items
 ALTER TABLE purchase_pending_items
   ADD COLUMN IF NOT EXISTS sales_order_number text NOT NULL DEFAULT '';
 
+ALTER TABLE purchase_pending_items
+  ADD COLUMN IF NOT EXISTS item_key text NOT NULL DEFAULT '';
+
+ALTER TABLE purchase_pending_items
+  ADD COLUMN IF NOT EXISTS is_viewed integer NOT NULL DEFAULT 1;
+
+ALTER TABLE purchase_pending_items
+  ADD COLUMN IF NOT EXISTS viewed_by text NOT NULL DEFAULT '';
+
+ALTER TABLE purchase_pending_items
+  ADD COLUMN IF NOT EXISTS viewed_at text NOT NULL DEFAULT '';
+
 ALTER TABLE pcp_pending_issues
   ADD COLUMN IF NOT EXISTS motive text NOT NULL DEFAULT '';
 
@@ -433,6 +449,7 @@ CREATE INDEX IF NOT EXISTS idx_purchase_pending_items_status ON purchase_pending
 CREATE INDEX IF NOT EXISTS idx_purchase_pending_items_imported_at ON purchase_pending_items(imported_at);
 CREATE INDEX IF NOT EXISTS idx_purchase_pending_items_source ON purchase_pending_items(source_name);
 CREATE INDEX IF NOT EXISTS idx_purchase_pending_items_sales_order ON purchase_pending_items(sales_order_id);
+CREATE INDEX IF NOT EXISTS idx_purchase_pending_items_item_key ON purchase_pending_items(item_key);
 CREATE INDEX IF NOT EXISTS idx_order_stage_sequences_activity ON order_stage_sequences(activity_key, sequence_number);
 CREATE INDEX IF NOT EXISTS idx_quality_alerts_sku ON quality_alerts(sku);
 CREATE INDEX IF NOT EXISTS idx_quality_alerts_customer ON quality_alerts(customer);

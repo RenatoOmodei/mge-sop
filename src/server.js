@@ -1243,24 +1243,25 @@ async function handleApi(context) {
 
     const body = await readJsonBody(req);
     const actor = session.user.name || session.user.username;
-    let items;
+    let importResult;
 
     try {
-      items = db.replacePurchasePendingItems(body.rows || [], body.sourceName || '', actor);
+      importResult = db.replacePurchasePendingItems(body.rows || [], body.sourceName || '', actor);
     } catch (error) {
       sendJson(res, 400, { error: error.message });
       return;
     }
 
+    const summary = importResult.summary || {};
     db.logActivity({
       actor,
       action: 'Pedidos de compras pendentes importados',
       entityType: 'Supply',
       entityLabel: body.sourceName || 'Tabela externa',
-      details: `${Array.isArray(body.rows) ? body.rows.length : 0} linha(s) importada(s); baixas anteriores preservadas`
+      details: `${summary.imported || 0} linha(s); ${summary.created || 0} novo(s); ${summary.preserved || 0} preservado(s); ${summary.autoResolved || 0} baixado(s) automaticamente`
     });
     broadcastRealtime(server, ['pcp', 'orders', 'reports']);
-    sendJson(res, 200, { items });
+    sendJson(res, 200, { items: importResult.items || [], summary });
     return;
   }
 
@@ -1277,7 +1278,7 @@ async function handleApi(context) {
     let item;
 
     try {
-      item = db.updatePurchasePendingSalesOrderLink(id, body.salesOrderId || '');
+      item = db.updatePurchasePendingSalesOrderLink(id, body.salesOrderId || '', actor);
     } catch (error) {
       sendJson(res, 400, { error: error.message });
       return;
@@ -1296,6 +1297,26 @@ async function handleApi(context) {
       details: item.salesOrderNumber ? `Pedido de venda ${item.salesOrderNumber}` : 'Sem pedido de venda vinculado'
     });
     broadcastRealtime(server, ['pcp', 'orders', 'reports']);
+    sendJson(res, 200, { item, items: db.listPurchasePendingItems() });
+    return;
+  }
+
+  const purchasePendingViewedMatch = pathname.match(/^\/api\/purchase-pending\/([^/]+)\/viewed$/);
+  if (purchasePendingViewedMatch && req.method === 'PATCH') {
+    if (!canViewTab(session, 'pcp') && !canViewTab(session, 'orders')) {
+      sendJson(res, 403, { error: 'Acesso negado aos pedidos de compras pendentes.' });
+      return;
+    }
+
+    const id = decodeURIComponent(purchasePendingViewedMatch[1]);
+    const actor = session.user.name || session.user.username;
+    const item = db.markPurchasePendingItemViewed(id, actor);
+    if (!item) {
+      sendJson(res, 404, { error: 'Pedido de compra pendente nao encontrado.' });
+      return;
+    }
+
+    broadcastRealtime(server, ['pcp', 'orders']);
     sendJson(res, 200, { item, items: db.listPurchasePendingItems() });
     return;
   }

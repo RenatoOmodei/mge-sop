@@ -2562,6 +2562,20 @@ button.mobile-alert-chip {
   color: var(--muted);
 }
 
+.generic-table tr.row-new td {
+  background: #173b63;
+  color: #ffffff;
+}
+
+.generic-table tr.row-new:hover td {
+  background: #204f82;
+}
+
+.generic-table tr.row-new .input {
+  background: #ffffff;
+  color: #111827;
+}
+
 .generic-table tr.clickable-row {
   cursor: pointer;
 }
@@ -4979,6 +4993,18 @@ textarea.input {
 .purchase-resolve-panel {
   border-color: #facc15;
   background: #fffdf3;
+}
+
+.purchase-detail-panel {
+  border-color: #8bb8e8;
+  background: #f8fbff;
+}
+
+.purchase-detail-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
 }
 
 .status-pill {

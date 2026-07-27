@@ -3613,6 +3613,7 @@ type PurchasePendingState = {
   importedAt: string;
   search: string;
   buyerFilter: string;
+  statusFilter: string;
   sortField: string;
   sortDirection: 'asc' | 'desc';
 };
@@ -3622,6 +3623,7 @@ export function PurchasePendingScreen({ user, realtimeRefreshKey = 0 }: ModulePr
   const [state, setState] = useState<PurchasePendingState>(() => loadPurchasePendingState(user.id));
   const [activeOrderOptions, setActiveOrderOptions] = useState<Row[]>([]);
   const [resolvingRow, setResolvingRow] = useState<Row | null>(null);
+  const [detailRow, setDetailRow] = useState<Row | null>(null);
   const [resolutionNote, setResolutionNote] = useState('');
   const [linkBusyId, setLinkBusyId] = useState('');
   const [error, setError] = useState('');
@@ -3656,12 +3658,13 @@ export function PurchasePendingScreen({ user, realtimeRefreshKey = 0 }: ModulePr
     };
   }, [realtimeRefreshKey]);
 
-  function persistUiState(patch: Partial<Pick<PurchasePendingState, 'search' | 'buyerFilter' | 'sortField' | 'sortDirection'>>) {
+  function persistUiState(patch: Partial<Pick<PurchasePendingState, 'search' | 'buyerFilter' | 'statusFilter' | 'sortField' | 'sortDirection'>>) {
     setState((current) => {
       const next = { ...current, ...patch };
       writeLocalPreference(purchasePendingStorageKey(user.id), {
         search: next.search,
         buyerFilter: next.buyerFilter,
+        statusFilter: next.statusFilter,
         sortField: next.sortField,
         sortDirection: next.sortDirection
       });
@@ -3692,12 +3695,12 @@ export function PurchasePendingScreen({ user, realtimeRefreshKey = 0 }: ModulePr
         setError('Nenhuma linha valida foi encontrada no arquivo importado.');
         return;
       }
-      const payload = await api<{ items?: Row[] }>('/api/purchase-pending/import', {
+      const payload = await api<{ items?: Row[]; summary?: Row }>('/api/purchase-pending/import', {
         method: 'POST',
         body: { sourceName: file.name, rows: parsedRows }
       });
       applyServerRows(payload.items || []);
-      setSuccess(`${parsedRows.length} pedido(s) de compra pendente(s) importado(s).`);
+      setSuccess(purchasePendingImportSummaryMessage(payload.summary, parsedRows.length));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Falha ao importar a tabela.');
     }
@@ -3709,6 +3712,10 @@ export function PurchasePendingScreen({ user, realtimeRefreshKey = 0 }: ModulePr
 
   function updateBuyerFilter(value: string) {
     persistUiState({ buyerFilter: value });
+  }
+
+  function updateStatusFilter(value: string) {
+    persistUiState({ statusFilter: value });
   }
 
   function updateSort(field: string) {
@@ -3781,8 +3788,36 @@ export function PurchasePendingScreen({ user, realtimeRefreshKey = 0 }: ModulePr
     }
   }
 
+  async function openDetail(row: Row) {
+    setDetailRow(row);
+    setError('');
+    if (!purchasePendingIsUnviewed(row)) return;
+
+    const id = String(row.id || '');
+    if (!id) return;
+    const viewedRow = { ...row, isViewed: true };
+    setDetailRow(viewedRow);
+    setState((current) => ({
+      ...current,
+      rows: current.rows.map((item) => String(item.id || '') === id ? { ...item, isViewed: true } : item)
+    }));
+
+    try {
+      const payload = await api<{ item?: Row; items?: Row[] }>(`/api/purchase-pending/${encodeURIComponent(id)}/viewed`, { method: 'PATCH' });
+      applyServerRows(payload.items || []);
+      if (payload.item) {
+        setDetailRow(normalizePurchasePendingRows([payload.item])[0] || viewedRow);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Falha ao marcar item como visualizado.');
+    }
+  }
+
   const buyerOptions = useMemo(() => purchasePendingBuyerOptions(state.rows), [state.rows]);
-  const filteredRows = useMemo(() => filterPurchasePendingRows(state.rows, state.search, state.buyerFilter), [state.rows, state.search, state.buyerFilter]);
+  const filteredRows = useMemo(
+    () => filterPurchasePendingRows(state.rows, state.search, state.buyerFilter, state.statusFilter),
+    [state.rows, state.search, state.buyerFilter, state.statusFilter]
+  );
   const buyerDelayRows = useMemo(() => purchasePendingBuyerDelayRows(state.rows), [state.rows]);
   const metrics = purchasePendingMetrics(state.rows);
   const columns = purchasePendingColumns(state.rows, {
@@ -3802,6 +3837,7 @@ export function PurchasePendingScreen({ user, realtimeRefreshKey = 0 }: ModulePr
       <div className="module-metrics compact">
         <Metric label="Pendentes" value={formatInteger(metrics.pending)} />
         <Metric label="Baixados" value={formatInteger(metrics.resolved)} />
+        <Metric label="Novos nao visualizados" value={formatInteger(metrics.unviewed)} />
         <Metric label="Fornecedores" value={formatInteger(metrics.suppliers)} />
         <Metric label="Entregas atrasadas" value={formatInteger(metrics.overdue)} />
         <Metric label="Sem pedido de compra" value={formatInteger(metrics.missingPurchaseOrder)} />
@@ -3815,6 +3851,14 @@ export function PurchasePendingScreen({ user, realtimeRefreshKey = 0 }: ModulePr
             <select className="input" value={state.buyerFilter} onChange={(event) => updateBuyerFilter(event.target.value)} disabled={!buyerOptions.length}>
               <option value="">Todos</option>
               {buyerOptions.map((buyer) => <option key={buyer} value={buyer}>{buyer}</option>)}
+            </select>
+          </label>
+          <label className="field module-search compact-field">
+            <span>Situacao</span>
+            <select className="input" value={state.statusFilter} onChange={(event) => updateStatusFilter(event.target.value)}>
+              <option value="all">Todos</option>
+              <option value="active">Ativos</option>
+              <option value="resolved">Baixados</option>
             </select>
           </label>
           {editable && (
@@ -3877,6 +3921,31 @@ export function PurchasePendingScreen({ user, realtimeRefreshKey = 0 }: ModulePr
         </section>
       )}
 
+      {detailRow && (
+        <section className="module-panel purchase-detail-panel">
+          <div className="panel-title">
+            <div>
+              <h3>Consulta do pedido de compra pendente</h3>
+              <span>{purchasePendingRowLabel(detailRow)}</span>
+            </div>
+            <div className="panel-actions">
+              <button className="btn" type="button" onClick={() => setDetailRow(null)}><IconText name="close">Fechar</IconText></button>
+            </div>
+          </div>
+          <div className="purchase-detail-summary">
+            <Metric label="Situacao" value={String(detailRow.itemStatus || 'pending') === 'resolved' ? 'Baixado' : 'Ativo'} />
+            <Metric label="Pedido venda vinculado" value={String(detailRow.salesOrderNumber || detailRow.linkedSalesOrderNumber || 'Sem vinculo')} />
+            <Metric label="Origem" value={String(detailRow.sourceName || '-')} />
+            <Metric label="Importado em" value={formatDateTime(detailRow.importedAt)} />
+            <Metric label="Baixado em" value={formatDateTime(detailRow.resolvedAt)} />
+          </div>
+          <DataTable rows={purchasePendingDetailRows(detailRow)} columns={[
+            { key: 'field', label: 'Campo' },
+            { key: 'value', label: 'Informacao' }
+          ]} />
+        </section>
+      )}
+
       <section className="module-panel">
         <div className="panel-title">
           <h3>Consulta de compras pendentes</h3>
@@ -3889,6 +3958,7 @@ export function PurchasePendingScreen({ user, realtimeRefreshKey = 0 }: ModulePr
           sortDirection={state.sortDirection}
           onSort={updateSort}
           rowClass={(row) => purchasePendingRowClass(row)}
+          onRowClick={openDetail}
           actions={editable ? (row) => (
             String(row.itemStatus || 'pending') === 'resolved'
               ? <span className="status-pill neutral">Baixado</span>
@@ -8133,6 +8203,7 @@ function loadPurchasePendingState(userId: string): PurchasePendingState {
     importedAt: '',
     search: String(rawState.search || ''),
     buyerFilter: String(rawState.buyerFilter || ''),
+    statusFilter: ['active', 'resolved', 'all'].includes(String(rawState.statusFilter || '')) ? String(rawState.statusFilter) : 'all',
     sortField: String(rawState.sortField || ''),
     sortDirection: rawState.sortDirection === 'desc' ? 'desc' : 'asc'
   };
@@ -8156,7 +8227,10 @@ function normalizePurchasePendingRows(value: unknown): Row[] {
         salesOrderNumber,
         linkedSalesOrderNumber: salesOrderNumber || 'Sem vinculo',
         itemStatus,
-        itemStatusLabel: itemStatus === 'resolved' ? 'Baixado' : 'Pendente'
+        itemStatusLabel: itemStatus === 'resolved' ? 'Baixado' : 'Pendente',
+        isViewed: row.isViewed === false || row.isViewed === 0 || row.isViewed === '0' ? false : true,
+        viewedBy: String(row.viewedBy || ''),
+        viewedAt: String(row.viewedAt || '')
       };
     })
     .filter((row) => Object.entries(row).some(([key, cell]) => !purchasePendingMetaKeys().has(key) && String(cell || '').trim()));
@@ -8291,12 +8365,13 @@ function purchasePendingLinkCell(row: Row, options?: {
 
   const hasCurrentOption = !currentOrderId || options.activeOrderOptions.some((order) => String(order.id || '') === currentOrderId);
   return (
-    <select
-      className="input purchase-link-select"
-      value={currentOrderId}
-      disabled={options.linkBusyId === String(row.id || '')}
-      onChange={(event) => options.onLinkChange(row, event.target.value)}
-    >
+      <select
+        className="input purchase-link-select"
+        value={currentOrderId}
+        disabled={options.linkBusyId === String(row.id || '')}
+        onClick={(event) => event.stopPropagation()}
+        onChange={(event) => options.onLinkChange(row, event.target.value)}
+      >
       <option value="">Sem vinculo</option>
       {!hasCurrentOption && <option value={currentOrderId}>{currentOrderNumber || 'Pedido vinculado indisponivel'}</option>}
       {options.activeOrderOptions.map((order) => (
@@ -8323,6 +8398,7 @@ function purchasePendingMetrics(rows: Row[]) {
   return {
     pending: pendingRows.length,
     resolved: rows.length - pendingRows.length,
+    unviewed: pendingRows.filter((row) => purchasePendingIsUnviewed(row)).length,
     suppliers: new Set(pendingRows.map((row) => String(row[supplierKey] || '').trim()).filter(Boolean)).size,
     overdue: pendingRows.filter((row) => purchasePendingIsOverdue(row)).length,
     missingPurchaseOrder: purchaseOrderKey
@@ -8331,12 +8407,18 @@ function purchasePendingMetrics(rows: Row[]) {
   };
 }
 
-function filterPurchasePendingRows(rows: Row[], search: string, buyerFilter: string) {
+function filterPurchasePendingRows(rows: Row[], search: string, buyerFilter: string, statusFilter = 'all') {
   const buyerKey = purchasePendingBuyerKey(rows);
   const filteredByBuyer = buyerFilter && buyerKey
     ? rows.filter((row) => String(row[buyerKey] || '').trim() === buyerFilter)
     : rows;
-  return filterRows(filteredByBuyer, search);
+  const filteredByStatus = filteredByBuyer.filter((row) => {
+    const resolved = String(row.itemStatus || 'pending') === 'resolved';
+    if (statusFilter === 'active') return !resolved;
+    if (statusFilter === 'resolved') return resolved;
+    return true;
+  });
+  return filterRows(filteredByStatus, search);
 }
 
 function sortPurchasePendingRows(rows: Row[], columns: Column[], field: string, direction: 'asc' | 'desc') {
@@ -8426,8 +8508,13 @@ function findPurchasePendingKey(rows: Row[], needles: string[]) {
 }
 
 function purchasePendingRowClass(row: Row) {
+  if (purchasePendingIsUnviewed(row)) return 'row-new';
   if (String(row.itemStatus || 'pending') === 'resolved') return 'row-muted';
   return purchasePendingIsOverdue(row) ? 'row-danger' : '';
+}
+
+function purchasePendingIsUnviewed(row: Row) {
+  return String(row.itemStatus || 'pending') !== 'resolved' && row.isViewed === false;
 }
 
 function purchasePendingExpectedDeliveryKey(row: Row) {
@@ -8461,17 +8548,46 @@ function purchasePendingRowLabel(row: Row) {
   return String(row.id || 'Pedido pendente');
 }
 
+function purchasePendingDetailRows(row: Row): Row[] {
+  const metaRows = [
+    ['Situacao', String(row.itemStatus || 'pending') === 'resolved' ? 'Baixado' : 'Ativo'],
+    ['Pedido de venda vinculado', String(row.salesOrderNumber || row.linkedSalesOrderNumber || 'Sem vinculo')],
+    ['Visualizado por', String(row.viewedBy || '') || '-'],
+    ['Visualizado em', formatDateTime(row.viewedAt)],
+    ['Baixado por', String(row.resolvedBy || '') || '-'],
+    ['Baixado em', formatDateTime(row.resolvedAt)],
+    ['Observacao baixa', String(row.resolutionNote || '') || '-']
+  ];
+  const dataRows = Object.keys(row)
+    .filter((key) => !purchasePendingMetaKeys().has(key))
+    .map((key) => [key, formatLoose(row[key])]);
+  return [...metaRows, ...dataRows].map(([field, value], index) => ({ id: `purchase-detail-${index}`, field, value }));
+}
+
+function purchasePendingImportSummaryMessage(summary: unknown, fallbackImported: number) {
+  const data = asRow(summary);
+  const imported = Number(data.imported ?? fallbackImported) || fallbackImported;
+  const created = Number(data.created) || 0;
+  const preserved = Number(data.preserved) || 0;
+  const autoResolved = Number(data.autoResolved) || 0;
+  return `${formatInteger(imported)} linha(s) importada(s): ${formatInteger(created)} novo(s), ${formatInteger(preserved)} preservado(s), ${formatInteger(autoResolved)} baixado(s) automaticamente.`;
+}
+
 function purchasePendingMetaKeys() {
   return new Set([
     'id',
     'importBatchId',
     'sourceName',
     'rowIndex',
+    'itemKey',
     'salesOrderId',
     'salesOrderNumber',
     'linkedSalesOrderNumber',
     'itemStatus',
     'itemStatusLabel',
+    'isViewed',
+    'viewedBy',
+    'viewedAt',
     'resolutionNote',
     'resolvedBy',
     'resolvedAt',
