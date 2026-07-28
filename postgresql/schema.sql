@@ -241,6 +241,8 @@ CREATE TABLE IF NOT EXISTS order_stage_sequences (
   activity_key text NOT NULL,
   sequence_number integer NOT NULL,
   estimated_hours numeric,
+  assigned_operator_code text NOT NULL DEFAULT '',
+  assigned_operator_name text NOT NULL DEFAULT '',
   updated_by text NOT NULL DEFAULT '',
   created_at text NOT NULL,
   updated_at text NOT NULL,
@@ -374,6 +376,12 @@ ALTER TABLE pcp_pending_issues
 ALTER TABLE pcp_pending_issues
   ADD COLUMN IF NOT EXISTS purchase_order_number text NOT NULL DEFAULT '';
 
+ALTER TABLE order_stage_sequences
+  ADD COLUMN IF NOT EXISTS assigned_operator_code text NOT NULL DEFAULT '';
+
+ALTER TABLE order_stage_sequences
+  ADD COLUMN IF NOT EXISTS assigned_operator_name text NOT NULL DEFAULT '';
+
 UPDATE pcp_pending_issues
 SET motive = CASE
     WHEN trim(COALESCE(motive, '')) = '' THEN 'Aguardando compra'
@@ -451,6 +459,7 @@ CREATE INDEX IF NOT EXISTS idx_purchase_pending_items_source ON purchase_pending
 CREATE INDEX IF NOT EXISTS idx_purchase_pending_items_sales_order ON purchase_pending_items(sales_order_id);
 CREATE INDEX IF NOT EXISTS idx_purchase_pending_items_item_key ON purchase_pending_items(item_key);
 CREATE INDEX IF NOT EXISTS idx_order_stage_sequences_activity ON order_stage_sequences(activity_key, sequence_number);
+CREATE INDEX IF NOT EXISTS idx_order_stage_sequences_operator ON order_stage_sequences(assigned_operator_code);
 CREATE INDEX IF NOT EXISTS idx_quality_alerts_sku ON quality_alerts(sku);
 CREATE INDEX IF NOT EXISTS idx_quality_alerts_customer ON quality_alerts(customer);
 CREATE INDEX IF NOT EXISTS idx_quality_alerts_line_capacity ON quality_alerts(product_line, capacity_tr);

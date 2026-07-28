@@ -566,6 +566,8 @@ class LocalDatabase {
         activity_key TEXT NOT NULL,
         sequence_number INTEGER NOT NULL,
         estimated_hours REAL,
+        assigned_operator_code TEXT NOT NULL DEFAULT '',
+        assigned_operator_name TEXT NOT NULL DEFAULT '',
         updated_by TEXT NOT NULL DEFAULT '',
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
@@ -676,6 +678,7 @@ class LocalDatabase {
       CREATE INDEX IF NOT EXISTS idx_purchase_pending_items_sales_order ON purchase_pending_items(sales_order_id);
       CREATE INDEX IF NOT EXISTS idx_purchase_pending_items_item_key ON purchase_pending_items(item_key);
       CREATE INDEX IF NOT EXISTS idx_order_stage_sequences_activity ON order_stage_sequences(activity_key, sequence_number);
+      CREATE INDEX IF NOT EXISTS idx_order_stage_sequences_operator ON order_stage_sequences(assigned_operator_code);
       CREATE INDEX IF NOT EXISTS idx_quality_alerts_sku ON quality_alerts(sku);
       CREATE INDEX IF NOT EXISTS idx_quality_alerts_customer ON quality_alerts(customer);
       CREATE INDEX IF NOT EXISTS idx_quality_alerts_line_capacity ON quality_alerts(product_line, capacity_tr);
@@ -959,6 +962,13 @@ class LocalDatabase {
     if (!existingColumns.has('estimated_hours')) {
       this.db.exec('ALTER TABLE order_stage_sequences ADD COLUMN estimated_hours REAL');
     }
+    if (!existingColumns.has('assigned_operator_code')) {
+      this.db.exec("ALTER TABLE order_stage_sequences ADD COLUMN assigned_operator_code TEXT NOT NULL DEFAULT ''");
+    }
+    if (!existingColumns.has('assigned_operator_name')) {
+      this.db.exec("ALTER TABLE order_stage_sequences ADD COLUMN assigned_operator_name TEXT NOT NULL DEFAULT ''");
+    }
+    this.db.exec('CREATE INDEX IF NOT EXISTS idx_order_stage_sequences_operator ON order_stage_sequences(assigned_operator_code);');
   }
 
   ensureThirdPartyPartColumns() {
@@ -2552,11 +2562,16 @@ class LocalDatabase {
 
   listStageSequencing() {
     const sequenceRows = this.db
-      .prepare('SELECT order_id, activity_key, sequence_number, estimated_hours, updated_by, updated_at FROM order_stage_sequences')
+      .prepare(`
+        SELECT order_id, activity_key, sequence_number, estimated_hours, assigned_operator_code, assigned_operator_name, updated_by, updated_at
+        FROM order_stage_sequences
+      `)
       .all();
     const sequenceByOrderStage = new Map(
       sequenceRows.map((row) => [`${row.activity_key}:${row.order_id}`, row])
     );
+    const apsConfig = this.getApsConfig();
+    const operators = sequencingOperatorsFromApsConfig(apsConfig);
     const activities = ORDER_STAGE_DEFS.map((stage) => ({
       key: stage.key,
       label: stage.label,
@@ -2587,7 +2602,11 @@ class LocalDatabase {
       activity.totalQuantity = activity.items.reduce((sum, item) => sum + (Number(item.quantity) || 0), 0);
     }
 
-    return { activities };
+    return {
+      activities,
+      operators,
+      history: buildSequencingHistory(this.listOrders().filter((order) => order.itemType === 'production'), sequenceByOrderStage)
+    };
   }
 
   generateStageSequencing(activityKey = '', actor = '') {
@@ -2606,7 +2625,9 @@ class LocalDatabase {
         this.replaceStageSequence(key, orderedItems.map((item, index) => ({
           orderId: item.orderId,
           sequenceNumber: index + 1,
-          estimatedHours: item.estimatedHours
+          estimatedHours: item.estimatedHours,
+          assignedOperatorCode: item.assignedOperatorCode || '',
+          assignedOperatorName: item.assignedOperatorName || ''
         })), actor, now);
       }
       this.db.exec('COMMIT');
@@ -2626,13 +2647,21 @@ class LocalDatabase {
 
     const pending = this.listStageSequencing().activities.find((activity) => activity.key === cleanActivityKey);
     const pendingIds = new Set((pending?.items || []).map((item) => item.orderId));
+    const operators = sequencingOperatorsFromApsConfig(this.getApsConfig());
+    const operatorByCode = new Map(operators.map((operator) => [operator.code, operator]));
     const cleanItems = Array.isArray(items)
       ? items
-        .map((item) => ({
-          orderId: String(item.orderId || '').trim(),
-          sequenceNumber: Number(item.sequenceNumber),
-          estimatedHours: optionalSequenceHours(item.estimatedHours)
-        }))
+        .map((item) => {
+          const assignedOperatorCode = String(item.assignedOperatorCode || '').trim();
+          const operator = operatorByCode.get(assignedOperatorCode);
+          return {
+            orderId: String(item.orderId || '').trim(),
+            sequenceNumber: Number(item.sequenceNumber),
+            estimatedHours: optionalSequenceHours(item.estimatedHours),
+            assignedOperatorCode: operator ? operator.code : '',
+            assignedOperatorName: operator ? operator.name : ''
+          };
+        })
         .filter((item) => pendingIds.has(item.orderId) && Number.isFinite(item.sequenceNumber) && item.sequenceNumber > 0)
         .sort((a, b) => a.sequenceNumber - b.sequenceNumber || compareText(a.orderId, b.orderId))
         .map((item, index) => ({ ...item, sequenceNumber: index + 1 }))
@@ -2655,20 +2684,20 @@ class LocalDatabase {
   }
 
   replaceStageSequence(activityKey, items, actor = '', now = new Date().toISOString()) {
-    const deleteExisting = this.db.prepare('DELETE FROM order_stage_sequences WHERE activity_key = ?');
     const upsert = this.db.prepare(`
       INSERT INTO order_stage_sequences (
-        id, order_id, activity_key, sequence_number, estimated_hours, updated_by, created_at, updated_at
+        id, order_id, activity_key, sequence_number, estimated_hours, assigned_operator_code, assigned_operator_name, updated_by, created_at, updated_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(order_id, activity_key) DO UPDATE SET
         sequence_number = excluded.sequence_number,
         estimated_hours = excluded.estimated_hours,
+        assigned_operator_code = excluded.assigned_operator_code,
+        assigned_operator_name = excluded.assigned_operator_name,
         updated_by = excluded.updated_by,
         updated_at = excluded.updated_at
     `);
 
-    deleteExisting.run(activityKey);
     for (const item of items) {
       upsert.run(
         randomToken(12),
@@ -2676,6 +2705,8 @@ class LocalDatabase {
         activityKey,
         item.sequenceNumber,
         optionalSequenceHours(item.estimatedHours),
+        String(item.assignedOperatorCode || '').trim(),
+        String(item.assignedOperatorName || '').trim(),
         String(actor || '').trim(),
         now,
         now
@@ -4531,6 +4562,8 @@ function sequencingItemFromOrder(order, stage, sequence) {
     estimatedHours: sequence && sequence.estimated_hours !== null && sequence.estimated_hours !== undefined
       ? Number(sequence.estimated_hours) || null
       : null,
+    assignedOperatorCode: sequence ? sequence.assigned_operator_code || '' : '',
+    assignedOperatorName: sequence ? sequence.assigned_operator_name || '' : '',
     sequenceUpdatedBy: sequence ? sequence.updated_by || '' : '',
     sequenceUpdatedAt: sequence ? sequence.updated_at || '' : '',
     orderNumber: order.orderNumber,
@@ -4551,6 +4584,45 @@ function sequencingItemFromOrder(order, stage, sequence) {
     pcpPendingSummary: order.pcpPendingSummary || '',
     notes: order.notes || ''
   };
+}
+
+function sequencingOperatorsFromApsConfig(config = {}) {
+  const operators = Array.isArray(config.operators) ? config.operators : [];
+  return operators
+    .map((operator) => ({
+      code: String(operator.code || '').trim(),
+      name: String(operator.name || operator.code || '').trim(),
+      skill: String(operator.skill || '').trim(),
+      enabledOperations: Array.isArray(operator.enabledOperations) ? operator.enabledOperations : []
+    }))
+    .filter((operator) => operator.code);
+}
+
+function buildSequencingHistory(orders, sequenceByOrderStage) {
+  const rows = [];
+  for (const order of orders) {
+    for (const stage of ORDER_STAGE_DEFS) {
+      if (!order.stages || !order.stages[stage.key]) continue;
+      const sequence = sequenceByOrderStage.get(`${stage.key}:${order.id}`);
+      rows.push({
+        id: `${stage.key}:${order.id}`,
+        activityKey: stage.key,
+        activityLabel: stage.label,
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+        customer: order.customer,
+        sku: order.sku,
+        productionOrder: order.productionOrder,
+        assignedOperatorCode: sequence ? sequence.assigned_operator_code || '' : '',
+        assignedOperatorName: sequence ? sequence.assigned_operator_name || 'Sem atribuicao' : 'Sem atribuicao',
+        estimatedHours: sequence ? sequence.estimated_hours : null,
+        completedAt: order.updatedAt || (sequence ? sequence.updated_at : '') || '',
+        updatedBy: sequence ? sequence.updated_by || '' : '',
+        sequenceUpdatedAt: sequence ? sequence.updated_at || '' : ''
+      });
+    }
+  }
+  return rows.sort((a, b) => compareText(b.completedAt, a.completedAt) || compareText(a.assignedOperatorName, b.assignedOperatorName));
 }
 
 function compareSequencingDisplay(a, b) {
