@@ -211,6 +211,7 @@ type QualityAlertFormState = {
 type SequencingDraft = {
   sequenceNumber: string;
   estimatedHours: string;
+  assignedOperatorCode: string;
 };
 type SequencingUiState = {
   activityKey: string;
@@ -1036,6 +1037,57 @@ function PlotlyChart({
   }, [goal, isVisible, onPointSelect, percentage, series, title, type, yTitle]);
 
   return <div className="plotly-chart" ref={ref} />;
+}
+
+function SequencingAssignmentPie({ rows }: { rows: Row[] }) {
+  const ref = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const container = ref.current;
+    if (!container) return;
+    let disposed = false;
+    let plotlyInstance: any = null;
+
+    if (!rows.length) {
+      container.innerHTML = '<div class="empty chart-empty">Sem tarefas atribuidas.</div>';
+      return;
+    }
+
+    import('plotly.js-dist-min').then((module) => {
+      if (disposed || !container) return;
+      plotlyInstance = module.default;
+      plotlyInstance.newPlot(container, [{
+        type: 'pie',
+        labels: rows.map((row) => String(row.label || row.operatorName || 'Sem atribuicao')),
+        values: rows.map((row) => Number(row.value) || 0),
+        hole: 0.42,
+        textinfo: 'label+percent',
+        hovertemplate: '%{label}<br>%{value} tarefa(s)<extra></extra>',
+        marker: {
+          colors: ['#0f5ea8', '#3b82f6', '#22c55e', '#f59e0b', '#ef4444', '#7c3aed', '#14b8a6']
+        }
+      }], {
+        margin: { t: 8, r: 8, b: 8, l: 8 },
+        paper_bgcolor: '#ffffff',
+        plot_bgcolor: '#ffffff',
+        font: { family: 'Arial, Helvetica, sans-serif', size: 11, color: '#172033' },
+        showlegend: true,
+        legend: { orientation: 'h', x: 0, y: -0.08 },
+        uirevision: 'sequencing-assignment-pie'
+      }, {
+        displayModeBar: false,
+        displaylogo: false,
+        responsive: true
+      });
+    });
+
+    return () => {
+      disposed = true;
+      if (plotlyInstance) plotlyInstance.purge(container);
+    };
+  }, [rows]);
+
+  return <div className="plotly-chart sequencing-pie-chart" ref={ref} />;
 }
 
 export function AiScreen({ user, realtimeRefreshKey = 0 }: ModuleProps) {
@@ -3616,6 +3668,7 @@ type PurchasePendingState = {
   statusFilter: string;
   linkedOrderFilter: string;
   delayFilter: string;
+  columnFilters: Record<string, string>;
   sortField: string;
   sortDirection: 'asc' | 'desc';
 };
@@ -3660,7 +3713,7 @@ export function PurchasePendingScreen({ user, realtimeRefreshKey = 0 }: ModulePr
     };
   }, [realtimeRefreshKey]);
 
-  function persistUiState(patch: Partial<Pick<PurchasePendingState, 'search' | 'buyerFilter' | 'statusFilter' | 'linkedOrderFilter' | 'delayFilter' | 'sortField' | 'sortDirection'>>) {
+  function persistUiState(patch: Partial<Pick<PurchasePendingState, 'search' | 'buyerFilter' | 'statusFilter' | 'linkedOrderFilter' | 'delayFilter' | 'columnFilters' | 'sortField' | 'sortDirection'>>) {
     setState((current) => {
       const next = { ...current, ...patch };
       writeLocalPreference(purchasePendingStorageKey(user.id), {
@@ -3669,6 +3722,7 @@ export function PurchasePendingScreen({ user, realtimeRefreshKey = 0 }: ModulePr
         statusFilter: next.statusFilter,
         linkedOrderFilter: next.linkedOrderFilter,
         delayFilter: next.delayFilter,
+        columnFilters: next.columnFilters,
         sortField: next.sortField,
         sortDirection: next.sortDirection
       });
@@ -3730,10 +3784,25 @@ export function PurchasePendingScreen({ user, realtimeRefreshKey = 0 }: ModulePr
     persistUiState({ delayFilter: value });
   }
 
+  function updateColumnFilter(key: string, value: string) {
+    persistUiState({ columnFilters: { ...state.columnFilters, [key]: value } });
+  }
+
   function updateSort(field: string) {
     persistUiState({
       sortField: field,
       sortDirection: state.sortField === field && state.sortDirection === 'asc' ? 'desc' : 'asc'
+    });
+  }
+
+  function clearFilters() {
+    persistUiState({
+      search: '',
+      buyerFilter: '',
+      statusFilter: 'all',
+      linkedOrderFilter: '',
+      delayFilter: 'all',
+      columnFilters: {}
     });
   }
 
@@ -3827,10 +3896,6 @@ export function PurchasePendingScreen({ user, realtimeRefreshKey = 0 }: ModulePr
 
   const buyerOptions = useMemo(() => purchasePendingBuyerOptions(state.rows), [state.rows]);
   const linkedOrderOptions = useMemo(() => purchasePendingLinkedOrderOptions(state.rows), [state.rows]);
-  const filteredRows = useMemo(
-    () => filterPurchasePendingRows(state.rows, state.search, state.buyerFilter, state.statusFilter, state.linkedOrderFilter, state.delayFilter),
-    [state.rows, state.search, state.buyerFilter, state.statusFilter, state.linkedOrderFilter, state.delayFilter]
-  );
   const buyerDelayRows = useMemo(() => purchasePendingBuyerDelayRows(state.rows), [state.rows]);
   const metrics = purchasePendingMetrics(state.rows);
   const columns = purchasePendingColumns(state.rows, {
@@ -3839,6 +3904,10 @@ export function PurchasePendingScreen({ user, realtimeRefreshKey = 0 }: ModulePr
     linkBusyId,
     onLinkChange: updateLinkedSalesOrder
   });
+  const filteredRows = useMemo(
+    () => filterPurchasePendingRows(state.rows, columns, state.search, state.buyerFilter, state.statusFilter, state.linkedOrderFilter, state.delayFilter, state.columnFilters),
+    [state.rows, columns, state.search, state.buyerFilter, state.statusFilter, state.linkedOrderFilter, state.delayFilter, state.columnFilters]
+  );
   const visibleRows = useMemo(
     () => sortPurchasePendingRows(filteredRows, columns, state.sortField, state.sortDirection),
     [filteredRows, columns, state.sortField, state.sortDirection]
@@ -3895,6 +3964,7 @@ export function PurchasePendingScreen({ user, realtimeRefreshKey = 0 }: ModulePr
             </label>
           )}
           <button className="btn" type="button" disabled={!filteredRows.length} onClick={exportCsv}><IconText name="download">Exportar Excel</IconText></button>
+          <button className="btn" type="button" onClick={clearFilters}><IconText name="filter">Limpar filtros</IconText></button>
           {editable && <button className="btn" type="button" disabled={!state.rows.length} onClick={clearRows}><IconText name="trash">Limpar tabela</IconText></button>}
         </div>
         <div className="purchase-pending-origin">
@@ -3978,12 +4048,14 @@ export function PurchasePendingScreen({ user, realtimeRefreshKey = 0 }: ModulePr
           <h3>Consulta de compras pendentes</h3>
           <span>{visibleRows.length} registro(s)</span>
         </div>
-        <DataTable
+        <PurchasePendingTable
           rows={visibleRows}
           columns={columns}
+          filters={state.columnFilters}
           sortField={state.sortField}
           sortDirection={state.sortDirection}
           onSort={updateSort}
+          onFilter={updateColumnFilter}
           rowClass={(row) => purchasePendingRowClass(row)}
           onRowClick={openDetail}
           actions={editable ? (row) => (
@@ -3994,6 +4066,86 @@ export function PurchasePendingScreen({ user, realtimeRefreshKey = 0 }: ModulePr
         />
       </section>
     </ModuleFrame>
+  );
+}
+
+function PurchasePendingTable({
+  rows,
+  columns,
+  filters,
+  sortField,
+  sortDirection,
+  onSort,
+  onFilter,
+  actions,
+  rowClass,
+  onRowClick
+}: {
+  rows: Row[];
+  columns: Column[];
+  filters: Record<string, string>;
+  sortField: string;
+  sortDirection: 'asc' | 'desc';
+  onSort: (field: string) => void;
+  onFilter: (field: string, value: string) => void;
+  actions?: (row: Row) => ReactNode;
+  rowClass?: (row: Row) => string;
+  onRowClick?: (row: Row) => void;
+}) {
+  const linkedOrderOptions = purchasePendingLinkedOrderOptions(rows);
+
+  return (
+    <div className="generic-table-wrap purchase-pending-table-wrap">
+      <table className="generic-table purchase-pending-table">
+        <thead>
+          <tr>
+            {columns.map((column) => (
+              <th key={column.key}>
+                <button
+                  className={`table-sort-button ${sortField === column.key ? 'active' : ''}`}
+                  data-direction={sortField === column.key ? sortDirection : ''}
+                  type="button"
+                  title="Clique para classificar"
+                  onClick={() => onSort(column.key)}
+                >
+                  {column.label}
+                </button>
+              </th>
+            ))}
+            {actions && <th>Acoes</th>}
+          </tr>
+          <tr className="table-filter-row">
+            {columns.map((column) => (
+              <th key={`${column.key}-filter`}>
+                {purchasePendingColumnFilter(column, filters[column.key] || '', linkedOrderOptions, onFilter)}
+              </th>
+            ))}
+            {actions && <th />}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, index) => (
+            <tr
+              key={String(row.id || `${row.orderNumber || row.romaneioNumber || 'purchase-row'}-${index}`)}
+              className={[rowClass ? rowClass(row) : '', onRowClick ? 'clickable-row' : ''].filter(Boolean).join(' ')}
+              onClick={onRowClick ? () => onRowClick(row) : undefined}
+            >
+              {columns.map((column) => (
+                <td key={column.key} title={cellValue(row, column)} data-label={column.label}>
+                  {column.render ? column.render(row) : cellValue(row, column)}
+                </td>
+              ))}
+              {actions && <td className="row-actions-cell" data-label="Acoes" onClick={onRowClick ? (event) => event.stopPropagation() : undefined}>{actions(row)}</td>}
+            </tr>
+          ))}
+          {!rows.length && (
+            <tr>
+              <td className="empty" colSpan={columns.length + (actions ? 1 : 0)}>Nenhum registro encontrado.</td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -4056,10 +4208,19 @@ export function SequencingScreen({ user, realtimeRefreshKey = 0 }: ModuleProps) 
   }
 
   const activities = Array.isArray(data?.activities) ? data.activities as Row[] : [];
+  const operators = useMemo(() => normalizeSequencingOperators(data?.operators), [data]);
+  const sequencingDashboard = useMemo(() => buildSequencingDashboard(activities, drafts, operators), [activities, drafts, operators]);
+  const sequencingHistory = useMemo(() => normalizeSequencingHistory(data?.history), [data]);
+  const sequencingHistoryByOperatorRows = useMemo(() => buildSequencingHistoryByOperator(sequencingHistory), [sequencingHistory]);
+  const sequencingRecentHistoryRows = useMemo(() => sequencingHistory.slice(0, 12), [sequencingHistory]);
   const selectedActivity = activities.find((activity) => sequencingActivityKey(activity) === ui.activityKey) || activities[0];
   const selectedActivityKey = selectedActivity ? sequencingActivityKey(selectedActivity) : '';
   const selectedRows = selectedActivity && Array.isArray(selectedActivity.items) ? selectedActivity.items as Row[] : [];
   const selectedDrafts = drafts[selectedActivityKey] || {};
+  const selectedOperatorOptions = useMemo(
+    () => sequencingOperatorsForActivity(operators, selectedActivityKey),
+    [operators, selectedActivityKey]
+  );
   const orderedRows = useMemo(() => orderSequencingRows(selectedRows, selectedDrafts), [selectedRows, selectedDrafts]);
   const schedule = useMemo(
     () => buildSequencingSchedule(orderedRows, selectedDrafts, ui.startDateTime),
@@ -4101,7 +4262,8 @@ export function SequencingScreen({ user, realtimeRefreshKey = 0 }: ModuleProps) 
           return {
             orderId: row.orderId,
             sequenceNumber: normalizeSequencingSequence(draft.sequenceNumber, index + 1),
-            estimatedHours: normalizeSequencingHours(draft.estimatedHours)
+            estimatedHours: normalizeSequencingHours(draft.estimatedHours),
+            assignedOperatorCode: draft.assignedOperatorCode
           };
         });
       await api(`/api/sequencing/${encodeURIComponent(selectedActivityKey)}`, { method: 'PATCH', body: { items } });
@@ -4111,7 +4273,7 @@ export function SequencingScreen({ user, realtimeRefreshKey = 0 }: ModuleProps) 
 
   function exportSelectedActivity() {
     if (!selectedActivity) return;
-    exportSequencingCsv(selectedActivity, orderedRows, schedule);
+    exportSequencingCsv(selectedActivity, orderedRows, schedule, selectedDrafts, operators);
   }
 
   function printSequencingReport() {
@@ -4125,7 +4287,9 @@ export function SequencingScreen({ user, realtimeRefreshKey = 0 }: ModuleProps) 
         scheduleStart,
         scheduleEnd,
         totalEstimatedHours,
-        pcpPendingCount
+        pcpPendingCount,
+        drafts: selectedDrafts,
+        operators
       })
     );
   }
@@ -4137,6 +4301,8 @@ export function SequencingScreen({ user, realtimeRefreshKey = 0 }: ModuleProps) 
         <Metric label="Itens pendentes" value={formatInteger(selectedRows.length)} />
         <Metric label="Tempo total estimado" value={`${formatNumber(totalEstimatedHours)} h`} />
         <Metric label="Com pendencia PCP" value={formatInteger(pcpPendingCount)} />
+        <Metric label="Tarefas abertas" value={formatInteger(sequencingDashboard.openTasks)} />
+        <Metric label="Tarefas em andamento" value={formatInteger(sequencingDashboard.inProgressTasks)} />
       </div>
 
       <section className="module-panel sequencing-toolbar-panel">
@@ -4167,6 +4333,45 @@ export function SequencingScreen({ user, realtimeRefreshKey = 0 }: ModuleProps) 
         </div>
       </section>
 
+      <section className="module-panel sequencing-dashboard-panel">
+        <div className="panel-title">
+          <h3>Dashboard de tarefas</h3>
+          <span>{formatInteger(sequencingDashboard.totalTasks)} tarefa(s) abertas no sequenciamento</span>
+        </div>
+        <div className="sequencing-dashboard-grid">
+          <div className="sequencing-dashboard-chart">
+            <h4>Atribuicao por colaborador</h4>
+            <SequencingAssignmentPie rows={sequencingDashboard.assignmentRows} />
+          </div>
+          <div>
+            <div className="panel-title compact-title">
+              <h4>Historico por colaborador</h4>
+              <span>{formatInteger(sequencingHistory.length)} tarefa(s) executada(s)</span>
+            </div>
+            <DataTable rows={sequencingHistoryByOperatorRows} columns={[
+              { key: 'operatorName', label: 'Colaborador' },
+              { key: 'completedTasks', label: 'Executadas', format: formatInteger },
+              { key: 'totalEstimatedHours', label: 'Tempo total h', format: formatNumber },
+              { key: 'lastCompletedAt', label: 'Ultima execucao', format: formatDateTime }
+            ]} />
+          </div>
+        </div>
+        <div className="sequencing-history-list">
+          <div className="panel-title compact-title">
+            <h4>Ultimas tarefas executadas</h4>
+            <span>{formatInteger(sequencingRecentHistoryRows.length)} registro(s)</span>
+          </div>
+          <DataTable rows={sequencingRecentHistoryRows} columns={[
+            { key: 'assignedOperatorName', label: 'Colaborador' },
+            { key: 'activityLabel', label: 'Atividade' },
+            { key: 'orderNumber', label: 'Pedido' },
+            { key: 'customer', label: 'Cliente' },
+            { key: 'estimatedHours', label: 'Tempo h', format: formatNumber },
+            { key: 'completedAt', label: 'Execucao', format: formatDateTime }
+          ]} />
+        </div>
+      </section>
+
       <section className="module-panel">
         <div className="panel-title">
           <h3>Fila de trabalho</h3>
@@ -4186,7 +4391,8 @@ export function SequencingScreen({ user, realtimeRefreshKey = 0 }: ModuleProps) 
                 <th>Capacidade</th>
                 <th>Qtd.</th>
                 <th>Status</th>
-                <th>Entrega prod.</th>
+                <th>Operador</th>
+                <th>Entrega projeto</th>
                 <th>Atraso</th>
                 <th>Pend. PCP</th>
                 <th>Tempo estimado h</th>
@@ -4219,7 +4425,22 @@ export function SequencingScreen({ user, realtimeRefreshKey = 0 }: ModuleProps) 
                     <td>{formatLoose(row.capacityTr)}</td>
                     <td>{formatInteger(row.quantity)}</td>
                     <td>{String(row.status || '-')}</td>
-                    <td>{formatDate(row.productionDeliveryDate)}</td>
+                    <td>
+                      <select
+                        className="input sequence-operator-select"
+                        value={draft.assignedOperatorCode}
+                        disabled={!canEditSequencing}
+                        onChange={(event) => updateDraft(selectedActivityKey, row, { assignedOperatorCode: event.target.value })}
+                      >
+                        <option value="">Sem operador</option>
+                        {sequencingOperatorOptionsForDraft(selectedOperatorOptions, operators, draft.assignedOperatorCode).map((operator) => (
+                          <option key={String(operator.code || '')} value={String(operator.code || '')}>
+                            {sequencingOperatorLabel(operator)}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                    <td>{formatSequencingProjectDelivery(draft.estimatedHours)}</td>
                     <td>{formatInteger(row.daysLate)}</td>
                     <td title={String(row.pcpPendingSummary || '')}>{pending ? `${formatInteger(row.pcpPendingCount)} pend.` : '-'}</td>
                     <td>
@@ -4238,7 +4459,7 @@ export function SequencingScreen({ user, realtimeRefreshKey = 0 }: ModuleProps) 
               })}
               {!orderedRows.length && (
                 <tr>
-                  <td className="empty" colSpan={14}>Nenhum pedido pendente nesta atividade.</td>
+                  <td className="empty" colSpan={15}>Nenhum pedido pendente nesta atividade.</td>
                 </tr>
               )}
             </tbody>
@@ -4261,7 +4482,7 @@ export function SequencingScreen({ user, realtimeRefreshKey = 0 }: ModuleProps) 
             <div className="gantt-row" key={`gantt-${sequencingOrderKey(item.row) || index}`}>
               <div className="gantt-label">
                 <strong>{formatInteger(item.sequenceNumber)}. Pedido {String(item.row.orderNumber || '-')}</strong>
-                <span>{String(item.row.customer || '-')} | {String(item.row.sku || '-')}</span>
+                <span>{String(item.row.customer || '-')} | {String(item.row.sku || '-')} | {sequencingAssignedOperatorName(item.row, selectedDrafts, operators)}</span>
               </div>
               <div className="gantt-track">
                 <div
@@ -4290,6 +4511,8 @@ export function SequencingScreen({ user, realtimeRefreshKey = 0 }: ModuleProps) 
           scheduleEnd={scheduleEnd}
           totalEstimatedHours={totalEstimatedHours}
           pcpPendingCount={pcpPendingCount}
+          drafts={selectedDrafts}
+          operators={operators}
         />
       )}
     </ModuleFrame>
@@ -4303,7 +4526,9 @@ function SequencingPrintSheet({
   scheduleStart,
   scheduleEnd,
   totalEstimatedHours,
-  pcpPendingCount
+  pcpPendingCount,
+  drafts,
+  operators
 }: {
   activity?: Row;
   rows: Row[];
@@ -4312,6 +4537,8 @@ function SequencingPrintSheet({
   scheduleEnd: Date;
   totalEstimatedHours: number;
   pcpPendingCount: number;
+  drafts: Record<string, SequencingDraft>;
+  operators: Row[];
 }) {
   const scheduleByOrder = new Map(schedule.map((item) => [sequencingOrderKey(item.row), item]));
   const activityLabel = String(activity?.label || activity?.key || '-');
@@ -4382,6 +4609,8 @@ function SequencingPrintSheet({
             <th>Linha</th>
             <th>Qtd.</th>
             <th>Status</th>
+            <th>Operador</th>
+            <th>Entrega projeto</th>
             <th>Inicio</th>
             <th>Fim</th>
             <th>Tempo h</th>
@@ -4401,6 +4630,8 @@ function SequencingPrintSheet({
                 <td>{String(row.productLine || '-')}</td>
                 <td>{formatInteger(row.quantity)}</td>
                 <td>{String(row.status || '-')}</td>
+                <td>{sequencingAssignedOperatorName(row, drafts, operators)}</td>
+                <td>{formatSequencingProjectDelivery((drafts[sequencingOrderKey(row)] || sequencingDraftFromRow(row)).estimatedHours)}</td>
                 <td>{item ? formatLocalDateTime(item.startAt) : '-'}</td>
                 <td>{item ? formatLocalDateTime(item.endAt) : '-'}</td>
                 <td>{item ? formatNumber(item.durationHours) : '-'}</td>
@@ -4421,7 +4652,9 @@ function buildSequencingPrintDocument({
   scheduleStart,
   scheduleEnd,
   totalEstimatedHours,
-  pcpPendingCount
+  pcpPendingCount,
+  drafts,
+  operators
 }: {
   activity: Row;
   rows: Row[];
@@ -4430,6 +4663,8 @@ function buildSequencingPrintDocument({
   scheduleEnd: Date;
   totalEstimatedHours: number;
   pcpPendingCount: number;
+  drafts: Record<string, SequencingDraft>;
+  operators: Row[];
 }) {
   const scheduleByOrder = new Map(schedule.map((item) => [sequencingOrderKey(item.row), item]));
   const activityLabel = String(activity.label || activity.key || '-');
@@ -4438,7 +4673,7 @@ function buildSequencingPrintDocument({
     <div class="gantt-row">
       <div class="gantt-label">
         <strong>${escapeHtml(formatInteger(item.sequenceNumber))}. Pedido ${escapeHtml(item.row.orderNumber || '-')}</strong>
-        <span>${escapeHtml(item.row.customer || '-')} | ${escapeHtml(item.row.sku || '-')}</span>
+        <span>${escapeHtml(item.row.customer || '-')} | ${escapeHtml(item.row.sku || '-')} | ${escapeHtml(sequencingAssignedOperatorName(item.row, drafts, operators))}</span>
       </div>
       <div class="gantt-track">
         <span style="left:${printPercent(item.offsetPercent)};width:${printPercent(item.widthPercent)}">${escapeHtml(formatNumber(item.durationHours))} h</span>
@@ -4449,6 +4684,7 @@ function buildSequencingPrintDocument({
   const tableRows = rows.map((row, index) => {
     const item = scheduleByOrder.get(sequencingOrderKey(row));
     const pcpPending = String(row.pcpPendingSummary || (Number(row.pcpPendingCount) > 0 ? `${formatInteger(row.pcpPendingCount)} pend.` : '-'));
+    const draft = drafts[sequencingOrderKey(row)] || sequencingDraftFromRow(row);
     return `
       <tr>
         <td>${escapeHtml(formatInteger(item?.sequenceNumber || index + 1))}</td>
@@ -4459,6 +4695,8 @@ function buildSequencingPrintDocument({
         <td>${escapeHtml(row.productLine || '-')}</td>
         <td>${escapeHtml(formatInteger(row.quantity))}</td>
         <td>${escapeHtml(row.status || '-')}</td>
+        <td>${escapeHtml(sequencingAssignedOperatorName(row, drafts, operators))}</td>
+        <td>${escapeHtml(formatSequencingProjectDelivery(draft.estimatedHours))}</td>
         <td>${escapeHtml(item ? formatLocalDateTime(item.startAt) : '-')}</td>
         <td>${escapeHtml(item ? formatLocalDateTime(item.endAt) : '-')}</td>
         <td>${escapeHtml(item ? formatNumber(item.durationHours) : '-')}</td>
@@ -4527,7 +4765,7 @@ function buildSequencingPrintDocument({
     <table>
       <thead>
         <tr>
-          <th>Seq.</th><th>Pedido</th><th>Cliente</th><th>SKU</th><th>OP</th><th>Linha</th><th>Qtd.</th><th>Status</th><th>Inicio</th><th>Fim</th><th>Tempo h</th><th>Pendencias</th>
+          <th>Seq.</th><th>Pedido</th><th>Cliente</th><th>SKU</th><th>OP</th><th>Linha</th><th>Qtd.</th><th>Status</th><th>Operador</th><th>Entrega projeto</th><th>Inicio</th><th>Fim</th><th>Tempo h</th><th>Pendencias</th>
         </tr>
       </thead>
       <tbody>${tableRows}</tbody>
@@ -8233,6 +8471,7 @@ function loadPurchasePendingState(userId: string): PurchasePendingState {
     statusFilter: ['active', 'resolved', 'all'].includes(String(rawState.statusFilter || '')) ? String(rawState.statusFilter) : 'all',
     linkedOrderFilter: String(rawState.linkedOrderFilter || ''),
     delayFilter: rawState.delayFilter === 'overdue' ? 'overdue' : 'all',
+    columnFilters: stringRecord(rawState.columnFilters),
     sortField: String(rawState.sortField || ''),
     sortDirection: rawState.sortDirection === 'desc' ? 'desc' : 'asc'
   };
@@ -8436,7 +8675,16 @@ function purchasePendingMetrics(rows: Row[]) {
   };
 }
 
-function filterPurchasePendingRows(rows: Row[], search: string, buyerFilter: string, statusFilter = 'all', linkedOrderFilter = '', delayFilter = 'all') {
+function filterPurchasePendingRows(
+  rows: Row[],
+  columns: Column[],
+  search: string,
+  buyerFilter: string,
+  statusFilter = 'all',
+  linkedOrderFilter = '',
+  delayFilter = 'all',
+  columnFilters: Record<string, string> = {}
+) {
   const buyerKey = purchasePendingBuyerKey(rows);
   const filteredByBuyer = buyerFilter && buyerKey
     ? rows.filter((row) => String(row[buyerKey] || '').trim() === buyerFilter)
@@ -8453,7 +8701,58 @@ function filterPurchasePendingRows(rows: Row[], search: string, buyerFilter: str
   const filteredByDelay = delayFilter === 'overdue'
     ? filteredByOrder.filter((row) => purchasePendingIsOverdue(row))
     : filteredByOrder;
-  return filterRows(filteredByDelay, search);
+  return filterPurchasePendingColumnFilters(filterRows(filteredByDelay, search), columns, columnFilters);
+}
+
+function filterPurchasePendingColumnFilters(rows: Row[], columns: Column[], filters: Record<string, string>) {
+  const activeFilters = Object.entries(filters)
+    .map(([key, value]) => [key, String(value || '').trim()] as const)
+    .filter(([, value]) => value);
+  if (!activeFilters.length) return rows;
+
+  return rows.filter((row) => activeFilters.every(([key, value]) => {
+    const column = columns.find((item) => item.key === key) || { key, label: key };
+    const cell = purchasePendingFilterValue(row, column);
+    return normalizeText(cell).includes(normalizeText(value));
+  }));
+}
+
+function purchasePendingFilterValue(row: Row, column: Column) {
+  if (column.key === 'linkedSalesOrderNumber') return purchasePendingLinkedOrderNumber(row) || 'Sem vinculo';
+  if (column.key === 'itemStatusLabel') return String(row.itemStatusLabel || (String(row.itemStatus || 'pending') === 'resolved' ? 'Baixado' : 'Pendente'));
+  return column.format ? column.format(row[column.key], row) : row[column.key];
+}
+
+function purchasePendingColumnFilter(column: Column, value: string, linkedOrderOptions: string[], onFilter: (field: string, value: string) => void) {
+  if (column.key === 'itemStatusLabel') {
+    return (
+      <select className="input table-filter-input" value={value} onChange={(event) => onFilter(column.key, event.target.value)}>
+        <option value="">Todos</option>
+        <option value="Pendente">Pendente</option>
+        <option value="Baixado">Baixado</option>
+      </select>
+    );
+  }
+
+  if (column.key === 'linkedSalesOrderNumber') {
+    return (
+      <select className="input table-filter-input" value={value} onChange={(event) => onFilter(column.key, event.target.value)}>
+        <option value="">Todos</option>
+        <option value="Sem vinculo">Sem vinculo</option>
+        {value && value !== 'Sem vinculo' && !linkedOrderOptions.includes(value) && <option value={value}>{value}</option>}
+        {linkedOrderOptions.map((orderNumber) => <option key={orderNumber} value={orderNumber}>{orderNumber}</option>)}
+      </select>
+    );
+  }
+
+  return (
+    <input
+      className="input table-filter-input"
+      value={value}
+      onChange={(event) => onFilter(column.key, event.target.value)}
+      placeholder="Filtrar"
+    />
+  );
 }
 
 function sortPurchasePendingRows(rows: Row[], columns: Column[], field: string, direction: 'asc' | 'desc') {
@@ -8884,8 +9183,148 @@ function sequencingOrderKey(row: Row) {
 function sequencingDraftFromRow(row: Row): SequencingDraft {
   return {
     sequenceNumber: row.sequenceNumber === null || row.sequenceNumber === undefined ? '' : String(row.sequenceNumber),
-    estimatedHours: row.estimatedHours === null || row.estimatedHours === undefined ? '' : String(row.estimatedHours)
+    estimatedHours: row.estimatedHours === null || row.estimatedHours === undefined ? '' : String(row.estimatedHours),
+    assignedOperatorCode: row.assignedOperatorCode === null || row.assignedOperatorCode === undefined ? '' : String(row.assignedOperatorCode)
   };
+}
+
+function normalizeSequencingOperators(value: unknown): Row[] {
+  return arrayRows(value)
+    .map((row) => ({
+      ...row,
+      code: String(row.code || '').trim(),
+      name: String(row.name || row.code || '').trim(),
+      skill: String(row.skill || '').trim(),
+      enabledOperations: Array.isArray(row.enabledOperations) ? row.enabledOperations : []
+    }))
+    .filter((row) => row.code);
+}
+
+function normalizeSequencingHistory(value: unknown): Row[] {
+  return arrayRows(value)
+    .map((row, index) => ({
+      ...row,
+      id: String(row.id || `sequencing-history-${index}`),
+      assignedOperatorName: String(row.assignedOperatorName || 'Sem atribuicao'),
+      completedAt: String(row.completedAt || row.sequenceUpdatedAt || '')
+    }))
+    .sort((left, right) => compareLoose(right.completedAt, left.completedAt));
+}
+
+function sequencingOperatorsForActivity(operators: Row[], activityKey: string) {
+  return operators.filter((operator) => {
+    const enabledOperations = Array.isArray(operator.enabledOperations) ? operator.enabledOperations.map(String) : [];
+    return !enabledOperations.length || !activityKey || enabledOperations.includes(activityKey);
+  });
+}
+
+function sequencingOperatorOptionsForDraft(activityOperators: Row[], allOperators: Row[], currentCode: unknown) {
+  const rowsByCode = new Map<string, Row>();
+  for (const operator of activityOperators) {
+    const code = String(operator.code || '').trim();
+    if (code) rowsByCode.set(code, operator);
+  }
+  const selectedCode = String(currentCode || '').trim();
+  if (selectedCode && !rowsByCode.has(selectedCode)) {
+    const selected = allOperators.find((operator) => String(operator.code || '').trim() === selectedCode);
+    if (selected) rowsByCode.set(selectedCode, selected);
+  }
+  return Array.from(rowsByCode.values()).sort((left, right) => compareLoose(left.name || left.code, right.name || right.code));
+}
+
+function sequencingOperatorLabel(operator: Row) {
+  const name = String(operator.name || operator.code || '').trim();
+  const skill = String(operator.skill || '').trim();
+  return skill ? `${name} - ${skill}` : name;
+}
+
+function sequencingAssignedOperatorName(row: Row, drafts: Record<string, SequencingDraft>, operators: Row[]) {
+  const draft = drafts[sequencingOrderKey(row)] || sequencingDraftFromRow(row);
+  const code = String(draft.assignedOperatorCode || row.assignedOperatorCode || '').trim();
+  if (code) {
+    const operator = operators.find((item) => String(item.code || '').trim() === code);
+    return String(operator?.name || row.assignedOperatorName || code);
+  }
+  return String(row.assignedOperatorName || 'Sem operador');
+}
+
+function buildSequencingDashboard(
+  activities: Row[],
+  drafts: Record<string, Record<string, SequencingDraft>>,
+  operators: Row[]
+) {
+  const operatorByCode = new Map(operators.map((operator) => [String(operator.code || '').trim(), operator]));
+  const assignments = new Map<string, Row>();
+  let totalTasks = 0;
+  let openTasks = 0;
+  let inProgressTasks = 0;
+
+  for (const activity of activities) {
+    const activityKey = sequencingActivityKey(activity);
+    const activityDrafts = drafts[activityKey] || {};
+    const rows = Array.isArray(activity.items) ? activity.items as Row[] : [];
+    for (const row of rows) {
+      totalTasks += 1;
+      const draft = activityDrafts[sequencingOrderKey(row)] || sequencingDraftFromRow(row);
+      const code = String(draft.assignedOperatorCode || row.assignedOperatorCode || '').trim();
+      if (!code) {
+        openTasks += 1;
+        continue;
+      }
+      inProgressTasks += 1;
+      const operator = operatorByCode.get(code);
+      const label = String(operator?.name || row.assignedOperatorName || code || 'Sem operador');
+      const current = assignments.get(code) || {
+        id: code,
+        label,
+        operatorName: label,
+        value: 0,
+        totalEstimatedHours: 0
+      };
+      current.value = Number(current.value || 0) + 1;
+      current.totalEstimatedHours = Number(current.totalEstimatedHours || 0) + normalizeSequencingHours(draft.estimatedHours);
+      assignments.set(code, current);
+    }
+  }
+
+  return {
+    totalTasks,
+    openTasks,
+    inProgressTasks,
+    assignmentRows: Array.from(assignments.values()).sort((left, right) => Number(right.value || 0) - Number(left.value || 0))
+  };
+}
+
+function buildSequencingHistoryByOperator(rows: Row[]) {
+  const groups = new Map<string, Row>();
+  for (const row of rows) {
+    const operatorName = String(row.assignedOperatorName || 'Sem atribuicao');
+    const current = groups.get(operatorName) || {
+      id: operatorName,
+      operatorName,
+      completedTasks: 0,
+      totalEstimatedHours: 0,
+      lastCompletedAt: ''
+    };
+    current.completedTasks = Number(current.completedTasks || 0) + 1;
+    current.totalEstimatedHours = Number(current.totalEstimatedHours || 0) + normalizeSequencingHours(row.estimatedHours);
+    if (!current.lastCompletedAt || compareLoose(current.lastCompletedAt, row.completedAt) < 0) {
+      current.lastCompletedAt = String(row.completedAt || '');
+    }
+    groups.set(operatorName, current);
+  }
+  return Array.from(groups.values()).sort((left, right) => Number(right.completedTasks || 0) - Number(left.completedTasks || 0));
+}
+
+function sequencingProjectDeliveryDate(estimatedHours: unknown) {
+  const hours = normalizeSequencingHours(estimatedHours);
+  if (!hours) return null;
+  return addHours(new Date(), hours);
+}
+
+function formatSequencingProjectDelivery(estimatedHours: unknown) {
+  const date = sequencingProjectDeliveryDate(estimatedHours);
+  return date ? formatLocalDateTime(date) : '-';
 }
 
 function orderSequencingRows(rows: Row[], drafts: Record<string, SequencingDraft>) {
@@ -8983,13 +9422,20 @@ function formatLocalDateTime(date: Date) {
   });
 }
 
-function exportSequencingCsv(activity: Row, rows: Row[], schedule: SequencingScheduleItem[]) {
+function exportSequencingCsv(
+  activity: Row,
+  rows: Row[],
+  schedule: SequencingScheduleItem[],
+  drafts: Record<string, SequencingDraft>,
+  operators: Row[]
+) {
   const scheduleByOrder = new Map(schedule.map((item) => [sequencingOrderKey(item.row), item]));
   const lines = [
-    ['Sequencia', 'Atividade', 'Pedido', 'Cliente', 'SKU', 'OP', 'Status', 'Tempo estimado h', 'Inicio', 'Fim', 'Pendencias PCP']
+    ['Sequencia', 'Atividade', 'Pedido', 'Cliente', 'SKU', 'OP', 'Status', 'Operador', 'Entrega projeto', 'Tempo estimado h', 'Inicio', 'Fim', 'Pendencias PCP']
   ];
   for (const row of rows) {
     const item = scheduleByOrder.get(sequencingOrderKey(row));
+    const draft = drafts[sequencingOrderKey(row)] || sequencingDraftFromRow(row);
     lines.push([
       String(item?.sequenceNumber || row.sequenceNumber || ''),
       String(activity.label || activity.key || ''),
@@ -8998,6 +9444,8 @@ function exportSequencingCsv(activity: Row, rows: Row[], schedule: SequencingSch
       String(row.sku || ''),
       String(row.productionOrder || ''),
       String(row.status || ''),
+      sequencingAssignedOperatorName(row, drafts, operators),
+      formatSequencingProjectDelivery(draft.estimatedHours),
       String(item?.durationHours || row.estimatedHours || ''),
       item ? formatLocalDateTime(item.startAt) : '',
       item ? formatLocalDateTime(item.endAt) : '',

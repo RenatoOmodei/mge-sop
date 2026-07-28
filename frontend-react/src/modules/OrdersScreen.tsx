@@ -1692,7 +1692,8 @@ function StatusChangeDialog({
   onClose: () => void;
   onSubmit: (payload: { status: string; allowStatusDeviation: boolean; statusDeviationReason: string }) => void | Promise<void>;
 }) {
-  const [status, setStatus] = useState(statuses[0] || '');
+  const currentStatus = currentStatusForSelectedOrders(orders);
+  const [status, setStatus] = useState(currentStatus || '');
   const [allowStatusDeviation, setAllowStatusDeviation] = useState(false);
   const [statusDeviationReason, setStatusDeviationReason] = useState('');
 
@@ -1709,7 +1710,9 @@ function StatusChangeDialog({
         <div className="dialog-header">
           <div>
             <h2>Alterar status</h2>
-            <span className="order-summary-subtitle">{orders.length} pedido(s) selecionado(s)</span>
+            <span className="order-summary-subtitle">
+              {orders.length} pedido(s) selecionado(s) | Atual: {currentStatus || 'status diferentes'}
+            </span>
           </div>
           <button className="icon-button" type="button" aria-label="Fechar" onClick={onClose}>x</button>
         </div>
@@ -1734,6 +1737,11 @@ function StatusChangeDialog({
       </form>
     </div>
   );
+}
+
+function currentStatusForSelectedOrders(orders: SalesOrder[]) {
+  const statuses = Array.from(new Set(orders.map((order) => String(order.status || '').trim()).filter(Boolean)));
+  return statuses.length === 1 ? statuses[0] : '';
 }
 
 function DimensionsDialog({

@@ -3073,6 +3073,51 @@ button.mobile-alert-chip {
   font-size: 12px;
 }
 
+.sequence-operator-select {
+  min-width: 160px;
+  min-height: 30px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.sequencing-dashboard-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.sequencing-dashboard-grid {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.8fr) minmax(420px, 1.2fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.sequencing-dashboard-chart h4,
+.compact-title h4 {
+  margin: 0;
+  color: #475467;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.sequencing-pie-chart {
+  min-height: 250px;
+  height: 250px;
+}
+
+.sequencing-history-list {
+  display: grid;
+  gap: 8px;
+}
+
+@media (max-width: 920px) {
+  .sequencing-dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .sequencing-gantt-panel {
   overflow: hidden;
 }
